@@ -64,6 +64,8 @@ public:
 
 	FBackpackSnapshot ExportBackpackSnapshot() const;
 	bool ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot);
+	void SetBackpackPersistencePlayerId(const FString& InPlayerId);
+	const FString& GetBackpackPersistencePlayerId() const { return BackpackPersistencePlayerId; }
 	virtual void CopyProperties(APlayerState* PlayerState) override;
 	virtual void OverrideWith(APlayerState* PlayerState) override;
 protected:
@@ -77,6 +79,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UBackpackComponent> BackpackComponent;
+
+	UPROPERTY()
+	FString BackpackPersistencePlayerId;
 
 
 private:

@@ -165,11 +165,17 @@ bool AMyPlayerState::ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot)
 	return BackpackComponent->RestorePersistentSlots(ReplicatedSlots, Snapshot.Capacity, Snapshot.Revision);
 }
 
+void AMyPlayerState::SetBackpackPersistencePlayerId(const FString& InPlayerId)
+{
+	BackpackPersistencePlayerId = InPlayerId;
+}
+
 void AMyPlayerState::CopyProperties(APlayerState* PlayerState)
 {
 	Super::CopyProperties(PlayerState);
 	if (AMyPlayerState* DestinationState = Cast<AMyPlayerState>(PlayerState))
 	{
+		DestinationState->SetBackpackPersistencePlayerId(BackpackPersistencePlayerId);
 		DestinationState->ImportBackpackSnapshot(ExportBackpackSnapshot());
 	}
 }
@@ -179,6 +185,7 @@ void AMyPlayerState::OverrideWith(APlayerState* PlayerState)
 	Super::OverrideWith(PlayerState);
 	if (const AMyPlayerState* SourceState = Cast<AMyPlayerState>(PlayerState))
 	{
+		SetBackpackPersistencePlayerId(SourceState->GetBackpackPersistencePlayerId());
 		ImportBackpackSnapshot(SourceState->ExportBackpackSnapshot());
 	}
 }

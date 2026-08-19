@@ -47,7 +47,7 @@ bool FServerLocalBackpackPersistenceProvider::IsValidPlayerId(const FString& Pla
 	if (PlayerId.IsEmpty() || PlayerId.Len() > 128) return false;
 	for (const TCHAR Character : PlayerId)
 	{
-		if (!FChar::IsAlnum(Character) && Character != TEXT('_') && Character != TEXT('-') && Character != TEXT('.') && Character != TEXT(':')) return false;
+		if (Character < 0x20 || Character == 0x7f) return false;
 	}
 	return true;
 }

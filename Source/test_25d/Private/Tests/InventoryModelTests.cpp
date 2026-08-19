@@ -6,6 +6,7 @@
 #include "Backpack/BackpackPersistence.h"
 #include "Backpack/WorldPickup.h"
 #include "Player/MyPlayerState.h"
+#include "Game/MyGameModeBase.h"
 #include "Tests/InventoryTestGameplayEffects.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
@@ -387,9 +388,105 @@ bool FBackpackPersistenceRejectsDuplicateSessionLock::RunTest(const FString& Par
 
 	TestTrue(TEXT("First active session acquires the player lock"), Provider.AcquireSessionLock(PlayerId));
 	TestFalse(TEXT("Second active session for the same player is rejected"), Provider.AcquireSessionLock(PlayerId));
+	TestFalse(TEXT("Rejected duplicate does not release the original session lock"), Provider.AcquireSessionLock(PlayerId));
 	Provider.ReleaseSessionLock(PlayerId);
 	TestTrue(TEXT("Lock is available after the owning session releases it"), Provider.AcquireSessionLock(PlayerId));
 	Provider.ReleaseSessionLock(PlayerId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackPersistenceRestoresReconnectSnapshot,
+	"test_25d.Inventory.BackpackPersistenceRestoresReconnectSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackPersistenceRestoresReconnectSnapshot::RunTest(const FString& Parameters)
+{
+	FServerLocalBackpackPersistenceProvider Provider;
+	const FString PlayerId = FString::Printf(TEXT("PIEReconnect_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	FBackpackSnapshot SavedSnapshot;
+	SavedSnapshot.Capacity = 2;
+	SavedSnapshot.Slots.SetNum(2);
+	SavedSnapshot.Slots[1].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("ReconnectPotion")));
+	SavedSnapshot.Slots[1].Quantity = 4;
+
+	TestTrue(TEXT("First local session saves its snapshot"), Provider.Save(PlayerId, SavedSnapshot));
+	FBackpackSnapshot ReconnectedSnapshot;
+	TestTrue(TEXT("Reconnect with the same stable key loads a snapshot"), Provider.Load(PlayerId, ReconnectedSnapshot));
+	TestEqual(TEXT("Reconnect preserves stable slot order"), ReconnectedSnapshot.Slots[1].ItemDefinitionId, SavedSnapshot.Slots[1].ItemDefinitionId);
+	TestEqual(TEXT("Reconnect preserves quantity"), ReconnectedSnapshot.Slots[1].Quantity, 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackTravelCopiesPlayerStateSnapshot,
+	"test_25d.Inventory.BackpackTravelCopiesPlayerStateSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackTravelCopiesPlayerStateSnapshot::RunTest(const FString& Parameters)
+{
+	FBackpackSnapshot Snapshot;
+	Snapshot.Capacity = 2;
+	Snapshot.Slots.SetNum(2);
+	Snapshot.Slots[1].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("TravelPotion")));
+	Snapshot.Slots[1].Quantity = 3;
+	AMyPlayerState* SourceState = NewObject<AMyPlayerState>();
+	AMyPlayerState* DestinationState = NewObject<AMyPlayerState>();
+
+	TestTrue(TEXT("Source accepts the travel snapshot"), SourceState->ImportBackpackSnapshot(Snapshot));
+	SourceState->SetBackpackPersistencePlayerId(TEXT("LocalDev.TravelClient"));
+	SourceState->CopyProperties(DestinationState);
+	const FBackpackSnapshot DestinationSnapshot = DestinationState->ExportBackpackSnapshot();
+	TestEqual(TEXT("Travel copy keeps the slot index"), DestinationSnapshot.Slots[1].ItemDefinitionId, Snapshot.Slots[1].ItemDefinitionId);
+	TestEqual(TEXT("Travel copy keeps the quantity"), DestinationSnapshot.Slots[1].Quantity, 3);
+	TestEqual(TEXT("Travel copy keeps the stable persistence identity"), DestinationState->GetBackpackPersistencePlayerId(), FString(TEXT("LocalDev.TravelClient")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackMutationProducesPersistableSnapshot,
+	"test_25d.Inventory.BackpackMutationProducesPersistableSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackMutationProducesPersistableSnapshot::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	FServerLocalBackpackPersistenceProvider Provider;
+	const FString PlayerId = FString::Printf(TEXT("MutationSave_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	bool bSavedAfterMutation = false;
+	const FDelegateHandle SaveHandle = Component->OnBackpackStateChanged.AddLambda([&Provider, &PlayerId, &State, &bSavedAfterMutation]()
+	{
+		bSavedAfterMutation = Provider.Save(PlayerId, State->ExportBackpackSnapshot());
+	});
+
+	TestTrue(TEXT("Authoritative mutation succeeds"), Component->TryAddItem(Potion, 1).bSucceeded);
+	Component->OnBackpackStateChanged.Remove(SaveHandle);
+	FBackpackSnapshot LoadedSnapshot;
+	TestTrue(TEXT("Mutation invokes durable snapshot save"), bSavedAfterMutation);
+	TestTrue(TEXT("Saved mutation snapshot loads"), Provider.Load(PlayerId, LoadedSnapshot));
+	TestEqual(TEXT("Saved mutation retains quantity"), LoadedSnapshot.Slots[0].Quantity, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackLocalDevelopmentIdentityIsStableAcrossReconnect,
+	"test_25d.Inventory.BackpackLocalDevelopmentIdentityIsStableAcrossReconnect",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackLocalDevelopmentIdentityIsStableAcrossReconnect::RunTest(const FString& Parameters)
+{
+	FString FirstConnectionId;
+	FString ReconnectId;
+	const FString LoginOptions(TEXT("?BackpackPlayerId=PIEReconnectClient"));
+	const FUniqueNetIdRepl NoOnlineIdentity;
+
+	TestTrue(TEXT("Controlled PIE identity is accepted"), AMyGameModeBase::ResolveStablePlayerIdForLogin(LoginOptions, NoOnlineIdentity, FirstConnectionId));
+	TestTrue(TEXT("Reconnect accepts the same controlled PIE identity"), AMyGameModeBase::ResolveStablePlayerIdForLogin(LoginOptions, NoOnlineIdentity, ReconnectId));
+	TestEqual(TEXT("Reconnect resolves the same persistence key"), ReconnectId, FirstConnectionId);
+	FString MissingIdentity;
+	TestFalse(TEXT("Persistence is disabled without online or controlled local identity"), AMyGameModeBase::ResolveStablePlayerIdForLogin(TEXT(""), NoOnlineIdentity, MissingIdentity));
 	return true;
 }
 

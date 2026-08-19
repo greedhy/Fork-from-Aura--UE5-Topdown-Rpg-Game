@@ -17,6 +17,7 @@ class USaveGame;
 class UMVVM_LoadSlot;
 class AMyPlayerState;
 class APlayerController;
+class UPlayer;
 
 /**
  * 
@@ -27,10 +28,14 @@ class TEST_25D_API AMyGameModeBase : public AGameModeBase
 	GENERATED_BODY()
 public:
 	AMyGameModeBase();
+	virtual void PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
+	virtual APlayerController* Login(UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage) override;
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void Logout(AController* Exiting) override;
 	virtual void ProcessServerTravel(const FString& URL, bool bAbsolute = false) override;
 	virtual void PostSeamlessTravel() override;
+
+	static bool ResolveStablePlayerIdForLogin(const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& OutPlayerId);
 
 	UPROPERTY(EditDefaultsOnly, Category = "Character Class Defaults")
 	TObjectPtr<UCharacterClassInfo> CharacterClassInfo;
@@ -83,11 +88,13 @@ private:
 		FDelegateHandle MutationHandle;
 	};
 
-	bool TryGetValidatedPlayerId(const AMyPlayerState* PlayerState, FString& OutPlayerId) const;
+	bool TryGetStablePlayerId(const AMyPlayerState* PlayerState, FString& OutPlayerId) const;
 	void RegisterBackpackSession(AMyPlayerState* PlayerState, const FString& PlayerId, bool bLoadSnapshot);
 	void PersistBackpack(const FString& PlayerId);
 	void ReleaseBackpackSession(const FString& PlayerId);
 
 	TUniquePtr<IBackpackPersistenceProvider> BackpackPersistenceProvider;
 	TMap<FString, FActiveBackpackSession> ActiveBackpackSessions;
+	TSet<FString> PendingSessionLocks;
+	TMap<APlayerController*, FString> PendingLoginPlayerIds;
 };
