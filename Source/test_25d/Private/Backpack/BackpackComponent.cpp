@@ -53,6 +53,7 @@ FInventoryAddResult UBackpackComponent::TryAddItem(const UItemDefinition* Defini
 	if (Result.bSucceeded)
 	{
 		SynchronizeReplicatedSlotsFromModel();
+		OnBackpackStateChanged.Broadcast();
 	}
 	return Result;
 }
@@ -87,6 +88,7 @@ bool UBackpackComponent::SwapSlots(int32 IndexA, int32 IndexB)
 	}
 
 	SynchronizeReplicatedSlotsFromModel();
+	OnBackpackStateChanged.Broadcast();
 	return true;
 }
 
@@ -131,6 +133,7 @@ bool UBackpackComponent::TryUseItemForPawn(int32 SlotIndex, APawn* Pawn)
 	}
 
 	SynchronizeReplicatedSlotsFromModel();
+	OnBackpackStateChanged.Broadcast();
 	return true;
 }
 
@@ -152,6 +155,30 @@ bool UBackpackComponent::SetCapacity(int32 NewCapacity)
 	ResizeReplicatedSlots(ClampedCapacity);
 	Capacity = ClampedCapacity;
 	++Revision;
+	OnBackpackStateChanged.Broadcast();
+	return true;
+}
+
+bool UBackpackComponent::RestorePersistentSlots(const TArray<FReplicatedInventorySlot>& SavedSlots, int32 SavedCapacity, int32 SavedRevision)
+{
+	if (!HasServerAuthority() || SavedCapacity < 0 || SavedSlots.Num() != SavedCapacity)
+	{
+		return false;
+	}
+
+	Initialize();
+	ReplicatedSlots.Items = SavedSlots;
+	for (FReplicatedInventorySlot& Slot : ReplicatedSlots.Items)
+	{
+		if (Slot.IsEmpty())
+		{
+			Slot.Clear();
+		}
+	}
+	ReplicatedSlots.MarkArrayDirty();
+	Capacity = SavedCapacity;
+	Revision = FMath::Max(0, SavedRevision);
+	InventoryModel->ApplyReplicatedSlots(ReplicatedSlots.Items, Capacity);
 	return true;
 }
 

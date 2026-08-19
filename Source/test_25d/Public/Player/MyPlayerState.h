@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
 #include"AbilitySystemInterface.h"
+#include "Backpack/BackpackPersistence.h"
 
 #include "MyPlayerState.generated.h"
 
@@ -60,6 +61,11 @@ public:
 
 	void SetAttributePoints(int32 InPoints);
 	void SetSpellPoints(int32 InPoints);
+
+	FBackpackSnapshot ExportBackpackSnapshot() const;
+	bool ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot);
+	virtual void CopyProperties(APlayerState* PlayerState) override;
+	virtual void OverrideWith(APlayerState* PlayerState) override;
 protected:
 	virtual void BeginPlay() override;
 

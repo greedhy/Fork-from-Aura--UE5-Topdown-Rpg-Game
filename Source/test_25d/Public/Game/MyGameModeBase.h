@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Backpack/BackpackPersistence.h"
 #include "MyGameModeBase.generated.h"
 
 class UAbilitySystemComponent;
@@ -14,6 +15,8 @@ class ULootTiers;
 class ULoadScreenSaveGame;
 class USaveGame;
 class UMVVM_LoadSlot;
+class AMyPlayerState;
+class APlayerController;
 
 /**
  * 
@@ -23,6 +26,11 @@ class TEST_25D_API AMyGameModeBase : public AGameModeBase
 {
 	GENERATED_BODY()
 public:
+	AMyGameModeBase();
+	virtual void PostLogin(APlayerController* NewPlayer) override;
+	virtual void Logout(AController* Exiting) override;
+	virtual void ProcessServerTravel(const FString& URL, bool bAbsolute = false) override;
+	virtual void PostSeamlessTravel() override;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Character Class Defaults")
 	TObjectPtr<UCharacterClassInfo> CharacterClassInfo;
@@ -67,4 +75,19 @@ public:
 	void PlayerDied(ACharacter* DeadCharacter);
 protected:
 	virtual void BeginPlay() override;
+
+private:
+	struct FActiveBackpackSession
+	{
+		TWeakObjectPtr<AMyPlayerState> PlayerState;
+		FDelegateHandle MutationHandle;
+	};
+
+	bool TryGetValidatedPlayerId(const AMyPlayerState* PlayerState, FString& OutPlayerId) const;
+	void RegisterBackpackSession(AMyPlayerState* PlayerState, const FString& PlayerId, bool bLoadSnapshot);
+	void PersistBackpack(const FString& PlayerId);
+	void ReleaseBackpackSession(const FString& PlayerId);
+
+	TUniquePtr<IBackpackPersistenceProvider> BackpackPersistenceProvider;
+	TMap<FString, FActiveBackpackSession> ActiveBackpackSessions;
 };

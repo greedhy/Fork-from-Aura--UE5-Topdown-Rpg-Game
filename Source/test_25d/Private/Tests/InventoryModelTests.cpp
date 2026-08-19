@@ -3,6 +3,7 @@
 #include "Backpack/ReplicatedInventory.h"
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
+#include "Backpack/BackpackPersistence.h"
 #include "Backpack/WorldPickup.h"
 #include "Player/MyPlayerState.h"
 #include "Tests/InventoryTestGameplayEffects.h"
@@ -340,6 +341,55 @@ bool FReplicatedSlotsDriveTypedViewModels::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("First stable slot has a typed view model"), FirstSlot);
 	TestFalse(TEXT("Replicated item slot is visible"), FirstSlot->IsEmpty());
 	TestEqual(TEXT("Replicated quantity reaches the typed view model"), FirstSlot->GetStackCount(), 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackSnapshotRoundTripsStableSlots,
+	"test_25d.Inventory.BackpackSnapshotRoundTripsStableSlots",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackSnapshotRoundTripsStableSlots::RunTest(const FString& Parameters)
+{
+	FBackpackSnapshot Snapshot;
+	Snapshot.Capacity = 3;
+	Snapshot.Revision = 17;
+	Snapshot.Slots.SetNum(3);
+	Snapshot.Slots[0].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("First")));
+	Snapshot.Slots[0].Quantity = 2;
+	Snapshot.Slots[2].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("Third")));
+	Snapshot.Slots[2].Quantity = 5;
+
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	TestTrue(TEXT("Snapshot imports into authoritative PlayerState"), State->ImportBackpackSnapshot(Snapshot));
+	const FBackpackSnapshot Restored = State->ExportBackpackSnapshot();
+
+	TestEqual(TEXT("Capacity round-trips"), Restored.Capacity, 3);
+	TestEqual(TEXT("Revision round-trips"), Restored.Revision, 17);
+	TestEqual(TEXT("Stable slot count round-trips"), Restored.Slots.Num(), 3);
+	TestEqual(TEXT("First slot identity round-trips"), Restored.Slots[0].ItemDefinitionId, Snapshot.Slots[0].ItemDefinitionId);
+	TestEqual(TEXT("First slot quantity round-trips"), Restored.Slots[0].Quantity, 2);
+	TestTrue(TEXT("Middle empty slot remains empty"), Restored.Slots[1].IsEmpty());
+	TestEqual(TEXT("Third slot identity remains at its original index"), Restored.Slots[2].ItemDefinitionId, Snapshot.Slots[2].ItemDefinitionId);
+	TestEqual(TEXT("Third slot quantity remains at its original index"), Restored.Slots[2].Quantity, 5);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackPersistenceRejectsDuplicateSessionLock,
+	"test_25d.Inventory.BackpackPersistenceRejectsDuplicateSessionLock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackPersistenceRejectsDuplicateSessionLock::RunTest(const FString& Parameters)
+{
+	FServerLocalBackpackPersistenceProvider Provider;
+	const FString PlayerId = FString::Printf(TEXT("AutomationPlayer_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+
+	TestTrue(TEXT("First active session acquires the player lock"), Provider.AcquireSessionLock(PlayerId));
+	TestFalse(TEXT("Second active session for the same player is rejected"), Provider.AcquireSessionLock(PlayerId));
+	Provider.ReleaseSessionLock(PlayerId);
+	TestTrue(TEXT("Lock is available after the owning session releases it"), Provider.AcquireSessionLock(PlayerId));
+	Provider.ReleaseSessionLock(PlayerId);
 	return true;
 }
 
