@@ -11,6 +11,8 @@
 class UMVVM_Backpack;
 class UItemDefinition;
 class APawn;
+class AWorldPickup;
+class AMyPlayerController;
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class TEST_25D_API UBackpackComponent : public UActorComponent
@@ -22,6 +24,7 @@ public:
 
 	void Initialize();
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
+	FInventoryAddResult TryPickup(AWorldPickup* Pickup);
 	bool SwapSlots(int32 IndexA, int32 IndexB);
 	bool TryUseItemForPawn(int32 SlotIndex, APawn* Pawn);
 	bool SetCapacity(int32 NewCapacity);
@@ -44,6 +47,7 @@ private:
 	void OnRep_Inventory();
 
 	bool HasServerAuthority() const;
+	AMyPlayerController* GetOwningPlayerController() const;
 	void InitializeReplicatedSlots();
 	void ResizeReplicatedSlots(int32 NewCapacity);
 	void SynchronizeReplicatedSlotsFromModel();

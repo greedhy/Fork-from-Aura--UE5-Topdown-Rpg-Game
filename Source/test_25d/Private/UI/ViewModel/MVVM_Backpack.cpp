@@ -10,9 +10,10 @@
 
 
 
-void UMVVM_Backpack::Initialize(UInventoryModel* InModel)
+void UMVVM_Backpack::Initialize(UInventoryModel* InModel, AMyPlayerController* InOwningPlayerController)
 {
     Model = InModel;
+    SetOwningPlayerController(InOwningPlayerController);
     if (Model)
     {
         Model->OnInventoryUpdated.AddUObject(this, &UMVVM_Backpack::HandleInventoryUpdated);
@@ -20,6 +21,12 @@ void UMVVM_Backpack::Initialize(UInventoryModel* InModel)
     }
 	RebuildFromModel();
 }
+
+void UMVVM_Backpack::SetOwningPlayerController(AMyPlayerController* InOwningPlayerController)
+{
+    OwningPlayerController = InOwningPlayerController;
+}
+
 void UMVVM_Backpack::HandleInventoryUpdated(const TArray<FInventorySlot>& Slots)
 {
     RebuildFromModel();
@@ -77,7 +84,7 @@ void UMVVM_Backpack::RequestSwap(int32 From, int32 To)
 {
 	if (IsValid(Model) && Model->GetSlots().IsValidIndex(From) && Model->GetSlots().IsValidIndex(To) && From != To)
 	{
-		if (AMyPlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController<AMyPlayerController>() : nullptr; IsValid(Controller) && Controller->IsLocalController())
+		if (AMyPlayerController* Controller = OwningPlayerController.Get(); IsValid(Controller) && Controller->IsLocalController())
 		{
 			Controller->ServerRequestSwap(From, To);
 		}
@@ -202,7 +209,7 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
 bool UMVVM_Backpack::RequestUseSelectedItem()
 {
     if (!HasSelectedItem()) return false;
-	if (AMyPlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController<AMyPlayerController>() : nullptr; IsValid(Controller) && Controller->IsLocalController())
+	if (AMyPlayerController* Controller = OwningPlayerController.Get(); IsValid(Controller) && Controller->IsLocalController())
 	{
 		Controller->ServerRequestUse(CurrentSelectedIndex);
 		return true;

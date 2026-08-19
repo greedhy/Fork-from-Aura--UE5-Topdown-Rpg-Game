@@ -19,6 +19,7 @@
 #include "Interface/HighLightInterface.h"
 #include "Interface/IEnemyInterface.h"
 #include "Backpack/BackpackComponent.h"
+#include "Backpack/WorldPickup.h"
 #include "Player/MyPlayerState.h"
 #include "test_25d/test_25d.h"
 
@@ -56,7 +57,8 @@ void AMyPlayerController::ShowDamageNumber_Implementation(float DamageAccount, A
 
 void AMyPlayerController::ServerRequestPickup_Implementation(AActor* PickupActor)
 {
-	if (!HasAuthority() || !IsValid(PickupActor) || !PickupActor->HasAuthority())
+	AWorldPickup* Pickup = Cast<AWorldPickup>(PickupActor);
+	if (!HasAuthority() || !IsValid(Pickup) || !Pickup->HasAuthority())
 	{
 		return;
 	}
@@ -65,6 +67,11 @@ void AMyPlayerController::ServerRequestPickup_Implementation(AActor* PickupActor
 	if (!IsValid(ControlledPawn) || FVector::DistSquared(ControlledPawn->GetActorLocation(), PickupActor->GetActorLocation()) > FMath::Square(PickupRequestRange))
 	{
 		return;
+	}
+
+	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
+	{
+		MyPlayerState->GetBackpackComponent()->TryPickup(Pickup);
 	}
 }
 

@@ -29,6 +29,7 @@ public:
 	AMyPlayerState();
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	virtual void ClientInitialize(AController* C) override;
 	UAttributeSet* GetAttributeSet() const { return AttributeSet; }
 	UBackpackComponent* GetBackpackComponent() const { return BackpackComponent; }
 

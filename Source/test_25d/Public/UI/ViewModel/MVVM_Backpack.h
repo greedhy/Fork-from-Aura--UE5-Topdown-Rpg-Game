@@ -9,6 +9,7 @@
 
 class UMVVM_InventorySlot;
 class UInventoryModel;
+class AMyPlayerController;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSetItemIndex, int32, WidgetSwitcherIndex);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryDropRequested, int32 /*SlotIndex*/);
@@ -23,7 +24,8 @@ class TEST_25D_API UMVVM_Backpack : public UMVVMViewModelBase
     GENERATED_BODY()
 public:
     UFUNCTION(BlueprintCallable)
-    void Initialize(UInventoryModel* InModel);
+    void Initialize(UInventoryModel* InModel, AMyPlayerController* InOwningPlayerController = nullptr);
+    void SetOwningPlayerController(AMyPlayerController* InOwningPlayerController);
 
     // 供 TileView/ListView 绑定——必须返回 TArray<UObject*>，并手动广播
     UFUNCTION(BlueprintPure, FieldNotify)
@@ -103,6 +105,8 @@ public:
 private:
     UPROPERTY()
     UInventoryModel* Model = nullptr;
+
+    TWeakObjectPtr<AMyPlayerController> OwningPlayerController;
 
     UPROPERTY(BlueprintReadOnly, FieldNotify, meta = (AllowPrivateAccess = true))
     TArray<UObject*> SlotVMs;

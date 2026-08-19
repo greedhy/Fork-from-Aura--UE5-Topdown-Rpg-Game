@@ -33,6 +33,12 @@ void AMyPlayerState::BeginPlay()
 
 }
 
+void AMyPlayerState::ClientInitialize(AController* C)
+{
+	Super::ClientInitialize(C);
+	BackpackComponent->Initialize();
+}
+
 void AMyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);

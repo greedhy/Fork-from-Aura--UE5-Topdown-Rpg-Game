@@ -4,6 +4,9 @@
 #include "Backpack/BackpackComponent.h"
 #include "Backpack/InventoryModel.h"
 #include "Backpack/ItemDefinition.h"
+#include "Backpack/WorldPickup.h"
+#include "Player/MyPlayerController.h"
+#include "Player/MyPlayerState.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "Net/UnrealNetwork.h"
@@ -21,6 +24,10 @@ void UBackpackComponent::Initialize()
 {
     if (IsValid(InventoryModel))
     {
+		if (IsValid(InventoryVM))
+		{
+			InventoryVM->SetOwningPlayerController(GetOwningPlayerController());
+		}
         return;
     }
     InventoryModel = NewObject<UInventoryModel>(this);
@@ -30,7 +37,7 @@ void UBackpackComponent::Initialize()
     }
     InventoryModel->ApplyReplicatedSlots(ReplicatedSlots.Items, Capacity);
     InventoryVM = NewObject<UMVVM_Backpack>(this);
-    InventoryVM->Initialize(InventoryModel);
+    InventoryVM->Initialize(InventoryModel, GetOwningPlayerController());
 }
 
 FInventoryAddResult UBackpackComponent::TryAddItem(const UItemDefinition* Definition, int32 Quantity)
@@ -46,6 +53,22 @@ FInventoryAddResult UBackpackComponent::TryAddItem(const UItemDefinition* Defini
 	if (Result.bSucceeded)
 	{
 		SynchronizeReplicatedSlotsFromModel();
+	}
+	return Result;
+}
+
+FInventoryAddResult UBackpackComponent::TryPickup(AWorldPickup* Pickup)
+{
+	FInventoryAddResult Result;
+	if (!HasServerAuthority() || !IsValid(Pickup) || !Pickup->HasAuthority() || !IsValid(Pickup->GetItemDefinition()) || Pickup->GetQuantity() <= 0)
+	{
+		return Result;
+	}
+
+	Result = TryAddItem(Pickup->GetItemDefinition(), Pickup->GetQuantity());
+	if (Result.AcceptedQuantity > 0 && !Pickup->ConsumeQuantity(Result.AcceptedQuantity))
+	{
+		return FInventoryAddResult();
 	}
 	return Result;
 }
@@ -102,7 +125,7 @@ bool UBackpackComponent::TryUseItemForPawn(int32 SlotIndex, APawn* Pawn)
 	}
 
 	const FActiveGameplayEffectHandle AppliedEffect = TargetAbilitySystem->ApplyGameplayEffectSpecToSelf(*EffectSpec.Data.Get());
-	if (!AppliedEffect.IsValid() || !InventoryModel->UseItemAt(SlotIndex))
+	if (!AppliedEffect.WasSuccessfullyApplied() || !InventoryModel->UseItemAt(SlotIndex))
 	{
 		return false;
 	}
@@ -149,6 +172,15 @@ void UBackpackComponent::OnRep_Inventory()
 bool UBackpackComponent::HasServerAuthority() const
 {
 	return GetOwner() && GetOwner()->HasAuthority();
+}
+
+AMyPlayerController* UBackpackComponent::GetOwningPlayerController() const
+{
+	if (const AMyPlayerState* PlayerState = Cast<AMyPlayerState>(GetOwner()))
+	{
+		return Cast<AMyPlayerController>(PlayerState->GetPlayerController());
+	}
+	return nullptr;
 }
 
 void UBackpackComponent::InitializeReplicatedSlots()

@@ -3,11 +3,45 @@
 #include "Backpack/ReplicatedInventory.h"
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
+#include "Backpack/WorldPickup.h"
 #include "Player/MyPlayerState.h"
+#include "Tests/InventoryTestGameplayEffects.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
+#include "AbilitySystemComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+
+namespace
+{
+	struct FInventoryTestPawn
+	{
+		FInventoryTestPawn()
+		{
+			const FName WorldName = MakeUniqueObjectName(GetTransientPackage(), UWorld::StaticClass(), TEXT("InventoryTestWorld"));
+			World = UWorld::CreateWorld(EWorldType::Game, false, WorldName);
+			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+			Pawn = World->SpawnActor<APawn>();
+			AbilitySystem = NewObject<UAbilitySystemComponent>(Pawn);
+			Pawn->AddInstanceComponent(AbilitySystem);
+			AbilitySystem->RegisterComponent();
+			AbilitySystem->InitAbilityActorInfo(Pawn, Pawn);
+		}
+
+		~FInventoryTestPawn()
+		{
+			GEngine->DestroyWorldContext(World);
+			World->DestroyWorld(false);
+		}
+
+		UWorld* World = nullptr;
+		APawn* Pawn = nullptr;
+		UAbilitySystemComponent* AbilitySystem = nullptr;
+	};
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FInventoryInitializesStableSlots,
@@ -135,13 +169,101 @@ bool FInventoryRejectsInvalidOrEffectlessUseWithoutConsumption::RunTest(const FS
 {
 	AMyPlayerState* State = NewObject<AMyPlayerState>();
 	UBackpackComponent* Component = State->GetBackpackComponent();
+	FInventoryTestPawn Target;
 	UItemDefinition* Potion = NewObject<UItemDefinition>();
 	Potion->bUsable = true;
 
 	TestTrue(TEXT("Authority adds the effectless item"), Component->TryAddItem(Potion, 1).bSucceeded);
-	TestFalse(TEXT("Invalid use does not consume"), Component->TryUseItemForPawn(99, nullptr));
-	TestFalse(TEXT("Effectless use does not consume"), Component->TryUseItemForPawn(0, nullptr));
+	TestFalse(TEXT("Invalid use does not consume"), Component->TryUseItemForPawn(99, Target.Pawn));
+	TestFalse(TEXT("Effectless use does not consume"), Component->TryUseItemForPawn(0, Target.Pawn));
 	TestEqual(TEXT("Failed effect retains stack"), Component->GetInventoryModel()->GetSlots()[0].Quantity, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryDoesNotConsumeWhenEffectApplicationFails,
+	"test_25d.Inventory.DoesNotConsumeWhenEffectApplicationFails",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryDoesNotConsumeWhenEffectApplicationFails::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	FInventoryTestPawn Target;
+	FGameplayEffectApplicationQuery RejectEffect;
+	RejectEffect.BindLambda([](const FActiveGameplayEffectsContainer&, const FGameplayEffectSpec&) { return false; });
+	Target.AbilitySystem->GameplayEffectApplicationQueries.Add(MoveTemp(RejectEffect));
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Potion->bUsable = true;
+	Potion->UseEffect = UInventoryTestInstantGameplayEffect::StaticClass();
+
+	TestTrue(TEXT("Authority adds the item with a rejected effect"), Component->TryAddItem(Potion, 1).bSucceeded);
+	TestFalse(TEXT("Rejected effect does not consume"), Component->TryUseItemForPawn(0, Target.Pawn));
+	TestEqual(TEXT("Rejected effect retains stack"), Component->GetInventoryModel()->GetSlots()[0].Quantity, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryConsumesWhenInstantEffectSucceeds,
+	"test_25d.Inventory.ConsumesWhenInstantEffectSucceeds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryConsumesWhenInstantEffectSucceeds::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	FInventoryTestPawn Target;
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Potion->bUsable = true;
+	Potion->UseEffect = UInventoryTestInstantGameplayEffect::StaticClass();
+
+	TestTrue(TEXT("Authority adds the instant item"), Component->TryAddItem(Potion, 1).bSucceeded);
+	TestTrue(TEXT("Instant effect consumes exactly once"), Component->TryUseItemForPawn(0, Target.Pawn));
+	TestTrue(TEXT("Instant effect clears final stack"), Component->GetInventoryModel()->GetSlots()[0].IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryConsumesWhenDurationEffectSucceeds,
+	"test_25d.Inventory.ConsumesWhenDurationEffectSucceeds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryConsumesWhenDurationEffectSucceeds::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	FInventoryTestPawn Target;
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Potion->bUsable = true;
+	Potion->UseEffect = UInventoryTestDurationGameplayEffect::StaticClass();
+
+	TestTrue(TEXT("Authority adds the duration item"), Component->TryAddItem(Potion, 1).bSucceeded);
+	TestTrue(TEXT("Duration effect consumes exactly once"), Component->TryUseItemForPawn(0, Target.Pawn));
+	TestTrue(TEXT("Duration effect clears final stack"), Component->GetInventoryModel()->GetSlots()[0].IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryPickupTransfersOnlyAcceptedQuantity,
+	"test_25d.Inventory.PickupTransfersOnlyAcceptedQuantity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryPickupTransfersOnlyAcceptedQuantity::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Potion->bStackable = true;
+	Potion->MaxStack = 2;
+	AWorldPickup* Pickup = NewObject<AWorldPickup>();
+	Pickup->SetItemDefinition(Potion);
+	Pickup->SetQuantity(3);
+
+	TestTrue(TEXT("Inventory capacity is limited to one slot"), Component->SetCapacity(1));
+	const FInventoryAddResult Result = Component->TryPickup(Pickup);
+	TestEqual(TEXT("Pickup transfers only capacity accepted quantity"), Result.AcceptedQuantity, 2);
+	TestEqual(TEXT("Partial pickup retains world remainder"), Pickup->GetQuantity(), 1);
+	TestEqual(TEXT("Inventory received accepted quantity"), Component->GetInventoryModel()->GetSlots()[0].Quantity, 2);
 	return true;
 }
 
