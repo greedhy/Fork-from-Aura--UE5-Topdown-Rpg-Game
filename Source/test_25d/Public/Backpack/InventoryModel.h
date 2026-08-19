@@ -6,6 +6,8 @@
 #include "UObject/Object.h"
 #include "InventoryModel.generated.h"
 
+class UItemDefinition;
+
 /**
  * 
  */
@@ -40,25 +42,38 @@ struct FInventorySlot
     GENERATED_BODY()
 
     UPROPERTY(BlueprintReadOnly)
-    FName ItemID = NAME_None;
+    FPrimaryAssetId ItemDefinitionId;
 
     UPROPERTY(BlueprintReadOnly)
     int32 Quantity = 0;
 
     bool IsEmpty() const
     {
-        return ItemID.IsNone() || Quantity <= 0;
+        return !ItemDefinitionId.IsValid() || Quantity <= 0;
     }
 
     void Clear()
     {
-        ItemID = NAME_None;
+        ItemDefinitionId = FPrimaryAssetId();
         Quantity = 0;
     }
 };
 
+USTRUCT(BlueprintType)
+struct FInventoryAddResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 AcceptedQuantity = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 RemainingQuantity = 0;
+};
+
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryUpdated, const TArray<FInventoryItem>&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryMaxSlotsChanged, int32 /*NewMaxSlots*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnSlotsDiscarded, const TArray<FInventorySlot>&);
 
 UCLASS()
 class TEST_25D_API UInventoryModel : public UObject
@@ -68,6 +83,9 @@ public:
     void InitializeSlots(int32 SlotCount);
 
     const TArray<FInventorySlot>& GetSlots() const { return Slots; }
+
+	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
+	bool UseItemAt(int32 SlotIndex);
 
     // InventoryModel.h 新增
     UFUNCTION(BlueprintCallable, Category = "Inventory")
@@ -95,6 +113,7 @@ public:
     int32 GetMaxSlots() const { return MaxSlots; }
 
     FOnInventoryMaxSlotsChanged OnInventoryMaxSlotsChanged;  // 格数变化广播
+    FOnSlotsDiscarded OnSlotsDiscarded;
 
 private:
     UPROPERTY()
@@ -102,6 +121,9 @@ private:
 
     UPROPERTY()
     TArray<FInventoryItem> Items;
+
+	UPROPERTY()
+	TMap<FPrimaryAssetId, TObjectPtr<UItemDefinition>> ItemDefinitions;
 
     int32 MaxSlots = 16;
 	

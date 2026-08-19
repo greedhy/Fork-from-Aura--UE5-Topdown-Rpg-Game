@@ -3,9 +3,84 @@
 
 #include "Backpack/InventoryModel.h"
 
+#include "Backpack/ItemDefinition.h"
+
 void UInventoryModel::InitializeSlots(int32 SlotCount)
 {
     Slots.SetNum(FMath::Max(0, SlotCount));
+}
+
+FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definition, int32 Quantity)
+{
+	FInventoryAddResult Result;
+	Result.RemainingQuantity = FMath::Max(Quantity, 0);
+	if (!IsValid(Definition) || Result.RemainingQuantity == 0)
+	{
+		return Result;
+	}
+
+	const FPrimaryAssetId ItemDefinitionId = Definition->GetPrimaryAssetId();
+	const int32 StackLimit = Definition->bStackable ? FMath::Max(1, Definition->MaxStack) : 1;
+	ItemDefinitions.FindOrAdd(ItemDefinitionId) = const_cast<UItemDefinition*>(Definition);
+	for (FInventorySlot& Slot : Slots)
+	{
+		if (Slot.ItemDefinitionId != ItemDefinitionId || Slot.Quantity >= StackLimit)
+		{
+			continue;
+		}
+
+		const int32 Accepted = FMath::Min(StackLimit - Slot.Quantity, Result.RemainingQuantity);
+		Slot.Quantity += Accepted;
+		Result.AcceptedQuantity += Accepted;
+		Result.RemainingQuantity -= Accepted;
+		if (Result.RemainingQuantity == 0)
+		{
+			return Result;
+		}
+	}
+
+	for (FInventorySlot& Slot : Slots)
+	{
+		if (!Slot.IsEmpty())
+		{
+			continue;
+		}
+
+		const int32 Accepted = FMath::Min(StackLimit, Result.RemainingQuantity);
+		Slot.ItemDefinitionId = ItemDefinitionId;
+		Slot.Quantity = Accepted;
+		Result.AcceptedQuantity += Accepted;
+		Result.RemainingQuantity -= Accepted;
+		if (Result.RemainingQuantity == 0)
+		{
+			break;
+		}
+	}
+
+	return Result;
+}
+
+bool UInventoryModel::UseItemAt(int32 SlotIndex)
+{
+	if (!Slots.IsValidIndex(SlotIndex) || Slots[SlotIndex].IsEmpty())
+	{
+		return false;
+	}
+
+	UItemDefinition* Definition = ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
+	if (!IsValid(Definition) || !Definition->bUsable)
+	{
+		return false;
+	}
+
+	FInventorySlot& Slot = Slots[SlotIndex];
+	--Slot.Quantity;
+	if (Slot.Quantity <= 0)
+	{
+		Slot.Clear();
+	}
+	OnInventoryUpdated.Broadcast(Items);
+	return true;
 }
 
 void UInventoryModel::DeleteItem(FName ItemID, int32 Count)
@@ -60,23 +135,41 @@ void UInventoryModel::RemoveItem(FName ItemID, int32 Count)
 
 void UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
 {
-    if (Items.IsValidIndex(IndexA) && Items.IsValidIndex(IndexB))
+    if (!Slots.IsValidIndex(IndexA) || !Slots.IsValidIndex(IndexB) || IndexA == IndexB)
     {
-        Swap(Items[IndexA], Items[IndexB]);
-        OnInventoryUpdated.Broadcast(Items);
+        return;
     }
+
+    Swap(Slots[IndexA], Slots[IndexB]);
+    OnInventoryUpdated.Broadcast(Items);
 }
 
 void UInventoryModel::SetMaxSlots(int32 NewMaxSlots)
 {
-    if (NewMaxSlots == MaxSlots || NewMaxSlots <= 0) return;
-
-    MaxSlots = NewMaxSlots;
-    // 如果新格数比现有物品少，截断多余物品（可按需求改成不删除，只限制新增）
-    if (Items.Num() > MaxSlots)
+    const int32 ClampedMaxSlots = FMath::Max(0, NewMaxSlots);
+    if (ClampedMaxSlots == MaxSlots && Slots.Num() == ClampedMaxSlots)
     {
-        Items.SetNum(MaxSlots);
+        return;
+    }
+
+    TArray<FInventorySlot> DiscardedSlots;
+    if (Slots.Num() > ClampedMaxSlots)
+    {
+        for (int32 Index = ClampedMaxSlots; Index < Slots.Num(); ++Index)
+        {
+            if (!Slots[Index].IsEmpty())
+            {
+                DiscardedSlots.Add(Slots[Index]);
+            }
+        }
+    }
+
+    MaxSlots = ClampedMaxSlots;
+    Slots.SetNum(MaxSlots);
+    if (!DiscardedSlots.IsEmpty())
+    {
+        OnSlotsDiscarded.Broadcast(DiscardedSlots);
     }
     OnInventoryMaxSlotsChanged.Broadcast(MaxSlots);
-    OnInventoryUpdated.Broadcast(Items);  // 触发ViewModel重建
+    OnInventoryUpdated.Broadcast(Items);
 }
