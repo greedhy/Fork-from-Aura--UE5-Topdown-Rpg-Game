@@ -4,6 +4,8 @@
 #include "Engine/DataAsset.h"
 #include "ItemDefinition.generated.h"
 
+class UGameplayEffect;
+
 UCLASS(BlueprintType)
 class TEST_25D_API UItemDefinition : public UPrimaryDataAsset
 {
@@ -27,4 +29,7 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Use")
 	bool bUsable = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Use")
+	TSubclassOf<UGameplayEffect> UseEffect;
 };

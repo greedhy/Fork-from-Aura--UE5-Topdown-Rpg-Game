@@ -7,6 +7,10 @@
 #include "UI/ViewModel/MVVM_InventorySlot.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "Net/UnrealNetwork.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
+#include "GameFramework/Pawn.h"
 
 UBackpackComponent::UBackpackComponent()
 {
@@ -63,15 +67,42 @@ bool UBackpackComponent::SwapSlots(int32 IndexA, int32 IndexB)
 	return true;
 }
 
-bool UBackpackComponent::UseItemAt(int32 SlotIndex)
+bool UBackpackComponent::TryUseItemForPawn(int32 SlotIndex, APawn* Pawn)
 {
-	if (!HasServerAuthority())
+	if (!HasServerAuthority() || !IsValid(Pawn))
 	{
 		return false;
 	}
 
 	Initialize();
-	if (!InventoryModel->UseItemAt(SlotIndex))
+	const TArray<FInventorySlot>& Slots = InventoryModel->GetSlots();
+	if (!Slots.IsValidIndex(SlotIndex) || Slots[SlotIndex].IsEmpty())
+	{
+		return false;
+	}
+
+	UItemDefinition* Definition = InventoryModel->ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
+	if (!IsValid(Definition) || !Definition->bUsable || !Definition->UseEffect)
+	{
+		return false;
+	}
+
+	UAbilitySystemComponent* TargetAbilitySystem = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Pawn);
+	if (!IsValid(TargetAbilitySystem))
+	{
+		return false;
+	}
+
+	FGameplayEffectContextHandle EffectContext = TargetAbilitySystem->MakeEffectContext();
+	EffectContext.AddSourceObject(Definition);
+	const FGameplayEffectSpecHandle EffectSpec = TargetAbilitySystem->MakeOutgoingSpec(Definition->UseEffect, 1.f, EffectContext);
+	if (!EffectSpec.IsValid())
+	{
+		return false;
+	}
+
+	const FActiveGameplayEffectHandle AppliedEffect = TargetAbilitySystem->ApplyGameplayEffectSpecToSelf(*EffectSpec.Data.Get());
+	if (!AppliedEffect.IsValid() || !InventoryModel->UseItemAt(SlotIndex))
 	{
 		return false;
 	}

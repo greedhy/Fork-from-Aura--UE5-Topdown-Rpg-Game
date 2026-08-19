@@ -18,6 +18,8 @@
 #include"Components/DecalComponent.h"
 #include "Interface/HighLightInterface.h"
 #include "Interface/IEnemyInterface.h"
+#include "Backpack/BackpackComponent.h"
+#include "Player/MyPlayerState.h"
 #include "test_25d/test_25d.h"
 
 AMyPlayerController::AMyPlayerController()
@@ -49,6 +51,46 @@ void AMyPlayerController::ShowDamageNumber_Implementation(float DamageAccount, A
 		DamageText->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 		DamageText->SetDamageText(DamageAccount, bBlockHit, bCriticalHit);
 		
+	}
+}
+
+void AMyPlayerController::ServerRequestPickup_Implementation(AActor* PickupActor)
+{
+	if (!HasAuthority() || !IsValid(PickupActor) || !PickupActor->HasAuthority())
+	{
+		return;
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	if (!IsValid(ControlledPawn) || FVector::DistSquared(ControlledPawn->GetActorLocation(), PickupActor->GetActorLocation()) > FMath::Square(PickupRequestRange))
+	{
+		return;
+	}
+}
+
+void AMyPlayerController::ServerRequestSwap_Implementation(int32 SourceSlotIndex, int32 TargetSlotIndex)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
+	{
+		MyPlayerState->GetBackpackComponent()->SwapSlots(SourceSlotIndex, TargetSlotIndex);
+	}
+}
+
+void AMyPlayerController::ServerRequestUse_Implementation(int32 SlotIndex)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
+	{
+		MyPlayerState->GetBackpackComponent()->TryUseItemForPawn(SlotIndex, GetPawn());
 	}
 }
 void AMyPlayerController::AutoRun()

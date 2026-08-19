@@ -127,6 +127,25 @@ bool FInventoryUsesAndClearsFinalItem::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryRejectsInvalidOrEffectlessUseWithoutConsumption,
+	"test_25d.Inventory.RejectsInvalidOrEffectlessUseWithoutConsumption",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryRejectsInvalidOrEffectlessUseWithoutConsumption::RunTest(const FString& Parameters)
+{
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Potion->bUsable = true;
+
+	TestTrue(TEXT("Authority adds the effectless item"), Component->TryAddItem(Potion, 1).bSucceeded);
+	TestFalse(TEXT("Invalid use does not consume"), Component->TryUseItemForPawn(99, nullptr));
+	TestFalse(TEXT("Effectless use does not consume"), Component->TryUseItemForPawn(0, nullptr));
+	TestEqual(TEXT("Failed effect retains stack"), Component->GetInventoryModel()->GetSlots()[0].Quantity, 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FPlayerStateOwnsBackpack,
 	"test_25d.Inventory.PlayerStateOwnsBackpack",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

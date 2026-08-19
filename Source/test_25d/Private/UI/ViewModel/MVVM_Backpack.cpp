@@ -5,6 +5,7 @@
 
 #include "MVVMViewModelBase.h"
 #include "Backpack/InventoryModel.h"
+#include "Player/MyPlayerController.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
 
 
@@ -76,7 +77,10 @@ void UMVVM_Backpack::RequestSwap(int32 From, int32 To)
 {
 	if (IsValid(Model) && Model->GetSlots().IsValidIndex(From) && Model->GetSlots().IsValidIndex(To) && From != To)
 	{
-		OnSwapRequested.Broadcast(From, To);
+		if (AMyPlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController<AMyPlayerController>() : nullptr; IsValid(Controller) && Controller->IsLocalController())
+		{
+			Controller->ServerRequestSwap(From, To);
+		}
 	}
 }
 
@@ -110,7 +114,7 @@ bool UMVVM_Backpack::RequestDropOnSlot(int32 TargetSlotIndex)
     const bool bSuccess = Model->GetSlots().IsValidIndex(TargetSlotIndex) && TargetSlotIndex != DragSourceIndex;
     if (bSuccess)
     {
-		OnSwapRequested.Broadcast(DragSourceIndex, TargetSlotIndex);
+		RequestSwap(DragSourceIndex, TargetSlotIndex);
     }
 
     ClearDragState();
@@ -198,8 +202,12 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
 bool UMVVM_Backpack::RequestUseSelectedItem()
 {
     if (!HasSelectedItem()) return false;
-	OnUseRequested.Broadcast(CurrentSelectedIndex);
-    return true;
+	if (AMyPlayerController* Controller = GetWorld() ? GetWorld()->GetFirstPlayerController<AMyPlayerController>() : nullptr; IsValid(Controller) && Controller->IsLocalController())
+	{
+		Controller->ServerRequestUse(CurrentSelectedIndex);
+		return true;
+	}
+	return false;
 }
 
 bool UMVVM_Backpack::RequestDeleteSelectedItem(int32 Count)
