@@ -15,14 +15,11 @@ void UMVVM_Backpack::Initialize(UInventoryModel* InModel)
     if (Model)
     {
         Model->OnInventoryUpdated.AddUObject(this, &UMVVM_Backpack::HandleInventoryUpdated);
+		Model->OnInventoryMaxSlotsChanged.AddUObject(this, &UMVVM_Backpack::OnMaxSlotsChanged);
     }
-    SlotVMsTyped.SetNum(16);
-    for (int32 i = 0; i < 16; ++i)
-    {
-        SlotVMsTyped[i] = NewObject<UMVVM_InventorySlot>(this);
-    }
+	RebuildFromModel();
 }
-void UMVVM_Backpack::HandleInventoryUpdated(const TArray<FInventoryItem>& Items)
+void UMVVM_Backpack::HandleInventoryUpdated(const TArray<FInventorySlot>& Slots)
 {
     RebuildFromModel();
 
@@ -31,20 +28,28 @@ void UMVVM_Backpack::HandleInventoryUpdated(const TArray<FInventoryItem>& Items)
 void UMVVM_Backpack::RebuildFromModel()
 {
     if (!Model) return;
-    const TArray<FInventoryItem>& Items = Model->GetItems();
+    const TArray<FInventorySlot>& Slots = Model->GetSlots();
+	MaxSlotsCache = Slots.Num();
     SlotVMs.Reset();
-    if (CurrentSelectedIndex >= Items.Num() || CurrentSelectedIndex < 0)
+	SlotVMsTyped.SetNum(Slots.Num());
+    if (CurrentSelectedIndex >= Slots.Num() || CurrentSelectedIndex < 0 || Slots[CurrentSelectedIndex].IsEmpty())
     {
         ResetSelection();
     }
-    for (int32 i = 0; i < 16; ++i)
+	for (int32 i = 0; i < Slots.Num(); ++i)
     {
         UMVVM_InventorySlot* VM = SlotVMsTyped[i];
-        if (i < Items.Num())
+		if (!IsValid(VM))
+		{
+			VM = NewObject<UMVVM_InventorySlot>(this);
+			SlotVMsTyped[i] = VM;
+		}
+		VM->SetSlotIndex(i);
+        if (!Slots[i].IsEmpty())
         {
             VM->SetEmpty(false);
-            VM->SetIcon(Items[i].Icon);
-            VM->SetStackCount(Items[i].Quantity);
+			VM->SetIcon(nullptr);
+            VM->SetStackCount(Slots[i].Quantity);
         }
         else
         {
@@ -61,34 +66,33 @@ void UMVVM_Backpack::RebuildFromModel()
 
 void UMVVM_Backpack::RequestDrop(int32 SlotIndex)
 {
-    if (!Model) return;
-    const TArray<FInventoryItem>& Items = Model->GetItems();
-    if (Items.IsValidIndex(SlotIndex))
+    if (IsValid(Model) && Model->GetSlots().IsValidIndex(SlotIndex) && !Model->GetSlots()[SlotIndex].IsEmpty())
     {
-        Model->RemoveItem(Items[SlotIndex].ItemID, Items[SlotIndex].Quantity);
+		OnDropRequested.Broadcast(SlotIndex);
     }
 }
 
 void UMVVM_Backpack::RequestSwap(int32 From, int32 To)
 {
-    if (Model) Model->SwapSlots(From, To);
+	if (IsValid(Model) && Model->GetSlots().IsValidIndex(From) && Model->GetSlots().IsValidIndex(To) && From != To)
+	{
+		OnSwapRequested.Broadcast(From, To);
+	}
 }
 
 // ==================== 拖拽逻辑 ====================
 bool UMVVM_Backpack::RequestBeginDrag(int32 SourceSlotIndex)
 {
-    if (!IsValid(Model) || !Model->GetItems().IsValidIndex(SourceSlotIndex))
+    if (!IsValid(Model) || !Model->GetSlots().IsValidIndex(SourceSlotIndex) || Model->GetSlots()[SourceSlotIndex].IsEmpty())
         return false;
 
-    const TArray<FInventoryItem>& Items = Model->GetItems();
-    DraggedItemCache = Items[SourceSlotIndex];
     DragSourceIndex = SourceSlotIndex;
     bIsDragging = true;
 
     // 标记源槽位为拖拽状态，UI自动更新样式
-    if (SlotVMPool.IsValidIndex(SourceSlotIndex))
+    if (SlotVMsTyped.IsValidIndex(SourceSlotIndex))
     {
-        SlotVMPool[SourceSlotIndex]->SetDragSource(true);
+		SlotVMsTyped[SourceSlotIndex]->SetDragSource(true);
     }
 
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(IsDragging);
@@ -103,44 +107,10 @@ bool UMVVM_Backpack::RequestDropOnSlot(int32 TargetSlotIndex)
         return false;
     }
 
-    const TArray<FInventoryItem>& Items = Model->GetItems();
-    bool bSuccess = false;
-
-    // 目标槽位有效
-    if (Items.IsValidIndex(TargetSlotIndex))
+    const bool bSuccess = Model->GetSlots().IsValidIndex(TargetSlotIndex) && TargetSlotIndex != DragSourceIndex;
+    if (bSuccess)
     {
-        const FInventoryItem& TargetItem = Items[TargetSlotIndex];
-        // 1. 同ID可堆叠：合并数量
-        if (TargetItem.ItemID == DraggedItemCache.ItemID && DraggedItemCache.bIsUsable)
-        {
-            const int32 Total = TargetItem.Quantity + DraggedItemCache.Quantity;
-            if (Total <= TargetItem.MaxStack)
-            {
-                Model->RemoveItem(DraggedItemCache.ItemID, DraggedItemCache.Quantity);
-                bSuccess = true;
-            }
-            else
-            {
-                // 超出堆叠上限：拆分后交换
-                const int32 Remaining = Total - TargetItem.MaxStack;
-                Model->RemoveItem(DraggedItemCache.ItemID, DraggedItemCache.Quantity - Remaining);
-                Model->SwapSlots(DragSourceIndex, TargetSlotIndex);
-                bSuccess = true;
-            }
-        }
-        // 2. 不同物品/不可堆叠：直接交换
-        else
-        {
-            Model->SwapSlots(DragSourceIndex, TargetSlotIndex);
-            bSuccess = true;
-        }
-    }
-    // 目标槽位为空且在有效范围内
-    else if (TargetSlotIndex < Model->GetMaxSlots())
-    {
-        Model->AddItem(DraggedItemCache);
-        Model->RemoveItem(DraggedItemCache.ItemID, DraggedItemCache.Quantity);
-        bSuccess = true;
+		OnSwapRequested.Broadcast(DragSourceIndex, TargetSlotIndex);
     }
 
     ClearDragState();
@@ -158,14 +128,14 @@ void UMVVM_Backpack::RequestHoverSlot(int32 HoverSlotIndex)
         return;
 
     // 清除上一个悬停槽位的状态
-    if (SlotVMPool.IsValidIndex(CurrentHoverIndex))
+    if (SlotVMsTyped.IsValidIndex(CurrentHoverIndex))
     {
-        SlotVMPool[CurrentHoverIndex]->SetDragHovered(false);
+		SlotVMsTyped[CurrentHoverIndex]->SetDragHovered(false);
     }
     // 设置新的悬停槽位状态
-    if (SlotVMPool.IsValidIndex(HoverSlotIndex))
+    if (SlotVMsTyped.IsValidIndex(HoverSlotIndex))
     {
-        SlotVMPool[HoverSlotIndex]->SetDragHovered(true);
+		SlotVMsTyped[HoverSlotIndex]->SetDragHovered(true);
     }
     CurrentHoverIndex = HoverSlotIndex;
 }
@@ -173,20 +143,18 @@ void UMVVM_Backpack::RequestHoverSlot(int32 HoverSlotIndex)
 void UMVVM_Backpack::ClearDragState()
 {
     // 重置所有槽位的拖拽状态
-    if (SlotVMPool.IsValidIndex(DragSourceIndex))
+    if (SlotVMsTyped.IsValidIndex(DragSourceIndex))
     {
-        SlotVMPool[DragSourceIndex]->SetDragSource(false);
+		SlotVMsTyped[DragSourceIndex]->SetDragSource(false);
     }
-    if (SlotVMPool.IsValidIndex(CurrentHoverIndex))
+    if (SlotVMsTyped.IsValidIndex(CurrentHoverIndex))
     {
-        SlotVMPool[CurrentHoverIndex]->SetDragHovered(false);
+		SlotVMsTyped[CurrentHoverIndex]->SetDragHovered(false);
     }
 
     bIsDragging = false;
     DragSourceIndex = INDEX_NONE;
     CurrentHoverIndex = INDEX_NONE;
-    DraggedItemCache = FInventoryItem();
-
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(IsDragging);
 }
 void UMVVM_Backpack::OnMaxSlotsChanged(int32 NewMaxSlots)
@@ -202,7 +170,6 @@ void UMVVM_Backpack::OnMaxSlotsChanged(int32 NewMaxSlots)
 void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
 {
     if (!IsValid(Model)) return;
-    const TArray<FInventoryItem>& Items = Model->GetItems();
 
     // 1. 取消之前选中的槽位
     if (CurrentSelectedIndex != INDEX_NONE && SlotVMsTyped.IsValidIndex(CurrentSelectedIndex))
@@ -212,11 +179,11 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
     }
 
     // 2. 选中新槽位（点击空白/无效索引则取消选中）
-    if (Items.IsValidIndex(SlotIndex))
+    if (Model->GetSlots().IsValidIndex(SlotIndex) && !Model->GetSlots()[SlotIndex].IsEmpty())
     {
         CurrentSelectedIndex = SlotIndex;
         SlotVMsTyped[SlotIndex]->SetSelected(true);
-        SlotVMsTyped[SlotIndex]->SetCanBeUsed(Items[SlotIndex].bIsUsable);
+		SlotVMsTyped[SlotIndex]->SetCanBeUsed(false);
     }
     else
     {
@@ -231,18 +198,14 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
 bool UMVVM_Backpack::RequestUseSelectedItem()
 {
     if (!HasSelectedItem()) return false;
-    //
+	OnUseRequested.Broadcast(CurrentSelectedIndex);
     return true;
-  //  return UInventoryModel::UseItem(GetSelectedItemName());
 }
 
 bool UMVVM_Backpack::RequestDeleteSelectedItem(int32 Count)
 {
     if (!HasSelectedItem()) return false;
-    const TArray<FInventoryItem>& Items = Model->GetItems();
-    const FInventoryItem& SelectedItem = Items[CurrentSelectedIndex];
-
-    Model->DeleteItem(SelectedItem.ItemID, Count);
+	OnDeleteRequested.Broadcast(CurrentSelectedIndex, Count);
     ResetSelection(); // 删除后取消选中
     return true;
 }
@@ -250,8 +213,7 @@ bool UMVVM_Backpack::RequestDeleteSelectedItem(int32 Count)
 FText UMVVM_Backpack::GetSelectedItemName() const
 {
     if (!HasSelectedItem()) return FText::GetEmpty();
-    const TArray<FInventoryItem>& Items = Model->GetItems();
-    return Items[CurrentSelectedIndex].DisplayName;
+	return FText::FromName(Model->GetSlots()[CurrentSelectedIndex].ItemDefinitionId.PrimaryAssetName);
 }
 
 void UMVVM_Backpack::ResetSelection()

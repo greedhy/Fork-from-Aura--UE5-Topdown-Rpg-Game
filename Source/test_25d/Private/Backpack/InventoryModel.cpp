@@ -36,6 +36,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 		if (Result.RemainingQuantity == 0)
 		{
 			Result.bSucceeded = true;
+			OnInventoryUpdated.Broadcast(Slots);
 			return Result;
 		}
 	}
@@ -59,6 +60,10 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 	}
 
 	Result.bSucceeded = Result.AcceptedQuantity > 0;
+	if (Result.bSucceeded)
+	{
+		OnInventoryUpdated.Broadcast(Slots);
+	}
 	return Result;
 }
 
@@ -81,7 +86,7 @@ bool UInventoryModel::UseItemAt(int32 SlotIndex)
 	{
 		Slot.Clear();
 	}
-	OnInventoryUpdated.Broadcast(Items);
+	OnInventoryUpdated.Broadcast(Slots);
 	return true;
 }
 
@@ -92,7 +97,7 @@ void UInventoryModel::DeleteItem(FName ItemID, int32 Count)
 
     Items[Idx].Quantity -= Count;
     if (Items[Idx].Quantity <= 0) Items.RemoveAt(Idx);
-    OnInventoryUpdated.Broadcast(Items); // 只广播库存更新，不触发掉落逻辑
+    OnInventoryUpdated.Broadcast(Slots); // 只广播库存更新，不触发掉落逻辑
 }
 void UInventoryModel::UseItem(FName ItemID)
 {
@@ -105,7 +110,7 @@ void UInventoryModel::UseItem(FName ItemID)
 
 
     //
-    OnInventoryUpdated.Broadcast(Items); // 只广播库存更新，不触发掉落逻辑
+    OnInventoryUpdated.Broadcast(Slots); // 只广播库存更新，不触发掉落逻辑
 }
 
 void UInventoryModel::AddItem(const FInventoryItem& NewItem)
@@ -115,14 +120,14 @@ void UInventoryModel::AddItem(const FInventoryItem& NewItem)
         if (It.ItemID == NewItem.ItemID && It.Quantity < It.MaxStack)
         {
             It.Quantity = FMath::Min(It.Quantity + NewItem.Quantity, It.MaxStack);
-            OnInventoryUpdated.Broadcast(Items);
+            OnInventoryUpdated.Broadcast(Slots);
             return;
         }
     }
     if (Items.Num() < MaxSlots)
     {
         Items.Add(NewItem);
-        OnInventoryUpdated.Broadcast(Items);
+        OnInventoryUpdated.Broadcast(Slots);
     }
 }
 
@@ -132,7 +137,7 @@ void UInventoryModel::RemoveItem(FName ItemID, int32 Count)
     if (Idx == INDEX_NONE) return;
     Items[Idx].Quantity -= Count;
     if (Items[Idx].Quantity <= 0) Items.RemoveAt(Idx);
-    OnInventoryUpdated.Broadcast(Items);
+    OnInventoryUpdated.Broadcast(Slots);
 }
 
 bool UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
@@ -143,7 +148,7 @@ bool UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
 	}
 
 	Swap(Slots[IndexA], Slots[IndexB]);
-	OnInventoryUpdated.Broadcast(Items);
+	OnInventoryUpdated.Broadcast(Slots);
 	return true;
 }
 
@@ -172,7 +177,7 @@ void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot
 	{
 		OnInventoryMaxSlotsChanged.Broadcast(MaxSlots);
 	}
-	OnInventoryUpdated.Broadcast(Items);
+	OnInventoryUpdated.Broadcast(Slots);
 }
 
 void UInventoryModel::SetMaxSlots(int32 NewMaxSlots)
@@ -202,5 +207,5 @@ void UInventoryModel::SetMaxSlots(int32 NewMaxSlots)
         OnSlotsDiscarded.Broadcast(DiscardedSlots);
     }
     OnInventoryMaxSlotsChanged.Broadcast(MaxSlots);
-    OnInventoryUpdated.Broadcast(Items);
+    OnInventoryUpdated.Broadcast(Slots);
 }

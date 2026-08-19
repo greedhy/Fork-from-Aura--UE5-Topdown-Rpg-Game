@@ -23,12 +23,8 @@ void UBackpackComponent::Initialize()
     if (HasServerAuthority())
     {
         InitializeReplicatedSlots();
-        InventoryModel->ApplyReplicatedSlots(ReplicatedSlots.Items, Capacity);
     }
-    else
-    {
-        InventoryModel->ApplyReplicatedSlots(ReplicatedSlots.Items, Capacity);
-    }
+    InventoryModel->ApplyReplicatedSlots(ReplicatedSlots.Items, Capacity);
     InventoryVM = NewObject<UMVVM_Backpack>(this);
     InventoryVM->Initialize(InventoryModel);
 }
@@ -84,6 +80,27 @@ bool UBackpackComponent::UseItemAt(int32 SlotIndex)
 	return true;
 }
 
+bool UBackpackComponent::SetCapacity(int32 NewCapacity)
+{
+	if (!HasServerAuthority())
+	{
+		return false;
+	}
+
+	const int32 ClampedCapacity = FMath::Max(0, NewCapacity);
+	if (Capacity == ClampedCapacity)
+	{
+		return false;
+	}
+
+	Initialize();
+	InventoryModel->SetMaxSlots(ClampedCapacity);
+	ResizeReplicatedSlots(ClampedCapacity);
+	Capacity = ClampedCapacity;
+	++Revision;
+	return true;
+}
+
 void UBackpackComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -105,14 +122,21 @@ bool UBackpackComponent::HasServerAuthority() const
 
 void UBackpackComponent::InitializeReplicatedSlots()
 {
-	if (ReplicatedSlots.Items.Num() >= Capacity)
+	ResizeReplicatedSlots(Capacity);
+}
+
+void UBackpackComponent::ResizeReplicatedSlots(int32 NewCapacity)
+{
+	if (NewCapacity < ReplicatedSlots.Items.Num())
 	{
+		ReplicatedSlots.Items.SetNum(NewCapacity);
+		ReplicatedSlots.MarkArrayDirty();
 		return;
 	}
 
 	const int32 FirstNewSlot = ReplicatedSlots.Items.Num();
-	ReplicatedSlots.Items.SetNum(Capacity);
-	for (int32 SlotIndex = FirstNewSlot; SlotIndex < ReplicatedSlots.Items.Num(); ++SlotIndex)
+	ReplicatedSlots.Items.SetNum(NewCapacity);
+	for (int32 SlotIndex = FirstNewSlot; SlotIndex < NewCapacity; ++SlotIndex)
 	{
 		ReplicatedSlots.MarkItemDirty(ReplicatedSlots.Items[SlotIndex]);
 	}

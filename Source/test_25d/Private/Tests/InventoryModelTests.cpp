@@ -4,6 +4,8 @@
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
 #include "Player/MyPlayerState.h"
+#include "UI/ViewModel/MVVM_Backpack.h"
+#include "UI/ViewModel/MVVM_InventorySlot.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -87,17 +89,20 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FInventoryShrinksByDiscardingTailSlots::RunTest(const FString& Parameters)
 {
-	UInventoryModel* Model = NewObject<UInventoryModel>();
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	UBackpackComponent* Component = State->GetBackpackComponent();
 	UItemDefinition* Potion = NewObject<UItemDefinition>();
 	Potion->bStackable = false;
 
-	Model->InitializeSlots(3);
-	Model->TryAddItem(Potion, 3);
-	Model->SetMaxSlots(2);
+	Component->TryAddItem(Potion, 3);
+	const int32 RevisionBeforeCapacityChange = Component->GetRevision();
+	TestTrue(TEXT("Authoritative component accepts capacity change"), Component->SetCapacity(2));
 
-	TestEqual(TEXT("Capacity removes the tail slot"), Model->GetSlots().Num(), 2);
-	TestFalse(TEXT("Existing slot zero is preserved"), Model->GetSlots()[0].IsEmpty());
-	TestFalse(TEXT("Existing slot one is preserved"), Model->GetSlots()[1].IsEmpty());
+	TestEqual(TEXT("Capacity and replicated list shrink together"), Component->GetReplicatedSlots().Items.Num(), Component->GetCapacity());
+	TestEqual(TEXT("Capacity removes the tail slot"), Component->GetInventoryModel()->GetSlots().Num(), 2);
+	TestFalse(TEXT("Existing slot zero is preserved"), Component->GetInventoryModel()->GetSlots()[0].IsEmpty());
+	TestFalse(TEXT("Existing slot one is preserved"), Component->GetInventoryModel()->GetSlots()[1].IsEmpty());
+	TestEqual(TEXT("Capacity mutation advances revision once"), Component->GetRevision(), RevisionBeforeCapacityChange + 1);
 	return true;
 }
 
@@ -157,9 +162,64 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FInventoryRejectsClientMutation::RunTest(const FString& Parameters)
 {
-	UBackpackComponent* Component = NewObject<UBackpackComponent>();
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	UBackpackComponent* ClientComponent = NewObject<UBackpackComponent>();
+	const int32 ClientRevision = ClientComponent->GetRevision();
 
-	TestFalse(TEXT("Client cannot mutate inventory"), Component->TryAddItem(nullptr, 1).bSucceeded);
+	TestFalse(TEXT("Client cannot mutate a valid inventory item"), ClientComponent->TryAddItem(Potion, 1).bSucceeded);
+	TestEqual(TEXT("Client rejection leaves the revision unchanged"), ClientComponent->GetRevision(), ClientRevision);
+
+	AMyPlayerState* ServerState = NewObject<AMyPlayerState>();
+	UBackpackComponent* ServerComponent = ServerState->GetBackpackComponent();
+	TestTrue(TEXT("Authority can mutate a valid inventory item"), ServerComponent->TryAddItem(Potion, 1).bSucceeded);
+	TestEqual(TEXT("Authority mutation advances the revision"), ServerComponent->GetRevision(), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FReplicatedSlotsDriveTypedViewModels,
+	"test_25d.Inventory.ReplicatedSlotsDriveTypedViewModels",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FReplicatedSlotsDriveTypedViewModels::RunTest(const FString& Parameters)
+{
+	UInventoryModel* Model = NewObject<UInventoryModel>();
+	FReplicatedInventoryList ReplicatedSlots;
+	ReplicatedSlots.Items.SetNum(2);
+	ReplicatedSlots.Items[0].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("Potion")));
+	ReplicatedSlots.Items[0].Quantity = 3;
+	Model->ApplyReplicatedSlots(ReplicatedSlots.Items, 2);
+
+	UMVVM_Backpack* ViewModel = NewObject<UMVVM_Backpack>();
+	ViewModel->Initialize(Model);
+	const TArray<UObject*>& SlotViewModels = ViewModel->GetSlotViewModels();
+	UMVVM_InventorySlot* FirstSlot = Cast<UMVVM_InventorySlot>(SlotViewModels[0]);
+
+	TestEqual(TEXT("View model count follows stable slots"), SlotViewModels.Num(), 2);
+	TestNotNull(TEXT("First stable slot has a typed view model"), FirstSlot);
+	TestFalse(TEXT("Replicated item slot is visible"), FirstSlot->IsEmpty());
+	TestEqual(TEXT("Replicated quantity reaches the typed view model"), FirstSlot->GetStackCount(), 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FViewModelSwapRequestDoesNotMutateModel,
+	"test_25d.Inventory.ViewModelSwapRequestDoesNotMutateModel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FViewModelSwapRequestDoesNotMutateModel::RunTest(const FString& Parameters)
+{
+	UInventoryModel* Model = NewObject<UInventoryModel>();
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	Model->InitializeSlots(2);
+	Model->TryAddItem(Potion, 1);
+
+	UMVVM_Backpack* ViewModel = NewObject<UMVVM_Backpack>();
+	ViewModel->Initialize(Model);
+	ViewModel->RequestSwap(0, 1);
+
+	TestFalse(TEXT("Intent request leaves source slot unchanged"), Model->GetSlots()[0].IsEmpty());
+	TestTrue(TEXT("Intent request leaves target slot unchanged"), Model->GetSlots()[1].IsEmpty());
 	return true;
 }
 

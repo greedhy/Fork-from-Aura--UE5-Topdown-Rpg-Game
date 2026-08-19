@@ -23,6 +23,12 @@ public:
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
 	bool SwapSlots(int32 IndexA, int32 IndexB);
 	bool UseItemAt(int32 SlotIndex);
+	bool SetCapacity(int32 NewCapacity);
+
+	const UInventoryModel* GetInventoryModel() const { return InventoryModel; }
+	const FReplicatedInventoryList& GetReplicatedSlots() const { return ReplicatedSlots; }
+	int32 GetCapacity() const { return Capacity; }
+	int32 GetRevision() const { return Revision; }
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -38,6 +44,7 @@ private:
 
 	bool HasServerAuthority() const;
 	void InitializeReplicatedSlots();
+	void ResizeReplicatedSlots(int32 NewCapacity);
 	void SynchronizeReplicatedSlotsFromModel();
 
 	UPROPERTY(ReplicatedUsing = OnRep_Inventory)

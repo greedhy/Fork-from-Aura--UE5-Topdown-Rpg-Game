@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -75,7 +75,7 @@ struct FInventoryAddResult
 	int32 RemainingQuantity = 0;
 };
 
-DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryUpdated, const TArray<FInventoryItem>&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryUpdated, const TArray<FInventorySlot>&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryMaxSlotsChanged, int32 /*NewMaxSlots*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnSlotsDiscarded, const TArray<FInventorySlot>&);
 
@@ -94,14 +94,10 @@ public:
 	void ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots);
 
     // InventoryModel.h 新增
-    UFUNCTION(BlueprintCallable, Category = "Inventory")
     void DeleteItem(FName ItemID, int32 Count);
-    UFUNCTION(BlueprintCallable, Category = "Inventory")
     void UseItem(FName ItemID); // 直接删除，不触发掉落
-    UFUNCTION(BlueprintCallable)
     void AddItem(const FInventoryItem& NewItem);
 
-    UFUNCTION(BlueprintCallable)
     void RemoveItem(FName ItemID, int32 Count);
 
 	const TArray<FInventoryItem>& GetItems() const { return Items; }
@@ -109,16 +105,16 @@ public:
     FOnInventoryUpdated OnInventoryUpdated;
 
     // 动态格数接口
-    UFUNCTION(BlueprintCallable, Category = "Inventory")
-    void SetMaxSlots(int32 NewMaxSlots);
-
-    UFUNCTION(BlueprintPure, Category = "Inventory")
     int32 GetMaxSlots() const { return MaxSlots; }
 
     FOnInventoryMaxSlotsChanged OnInventoryMaxSlotsChanged;  // 格数变化广播
     FOnSlotsDiscarded OnSlotsDiscarded;
 
 private:
+	friend class UBackpackComponent;
+
+	void SetMaxSlots(int32 NewMaxSlots);
+
     UPROPERTY()
     TArray<FInventorySlot> Slots;
 

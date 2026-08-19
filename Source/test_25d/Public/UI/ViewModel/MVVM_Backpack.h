@@ -11,6 +11,10 @@ class UMVVM_InventorySlot;
 class UInventoryModel;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSetItemIndex, int32, WidgetSwitcherIndex);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryDropRequested, int32 /*SlotIndex*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnInventorySwapRequested, int32 /*SourceSlotIndex*/, int32 /*TargetSlotIndex*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnInventoryUseRequested, int32 /*SlotIndex*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnInventoryDeleteRequested, int32 /*SlotIndex*/, int32 /*Count*/);
 
 
 UCLASS(Blueprintable, DisplayName = "Backpack ViewModel")
@@ -72,7 +76,7 @@ public:
     int32 GetCurrentSelectedIndex() const { return CurrentSelectedIndex; }
 
     UFUNCTION(BlueprintPure, FieldNotify)
-    bool HasSelectedItem() const { return CurrentSelectedIndex != INDEX_NONE && CurrentSelectedIndex < SlotVMsTyped.Num(); }
+    bool HasSelectedItem() const { return IsValid(Model) && Model->GetSlots().IsValidIndex(CurrentSelectedIndex) && !Model->GetSlots()[CurrentSelectedIndex].IsEmpty(); }
 
     // 操作接口（对应使用/删除按钮）
     UFUNCTION(BlueprintCallable, Category = "Inventory|Action")
@@ -91,6 +95,11 @@ public:
 
     // 重置选中状态（数据变化时调用）
     void ResetSelection();
+
+	FOnInventoryDropRequested OnDropRequested;
+	FOnInventorySwapRequested OnSwapRequested;
+	FOnInventoryUseRequested OnUseRequested;
+	FOnInventoryDeleteRequested OnDeleteRequested;
 private:
     UPROPERTY()
     UInventoryModel* Model = nullptr;
@@ -108,7 +117,7 @@ private:
     TSubclassOf<UMVVM_Backpack> UMVVM_BackpackClass;
 
     UFUNCTION()
-    void HandleInventoryUpdated(const TArray<FInventoryItem>& Items);
+    void HandleInventoryUpdated(const TArray<FInventorySlot>& Slots);
 
     // 槽位VM池（避免反复NewObject，性能优化）
     UPROPERTY()
@@ -119,7 +128,6 @@ private:
     // 拖拽临时状态（未提交到Model，避免拖拽过程中频繁修改数据）
     bool bIsDragging = false;
     int32 DragSourceIndex = INDEX_NONE;
-    FInventoryItem DraggedItemCache;
     int32 CurrentHoverIndex = INDEX_NONE;
 
     UFUNCTION()
