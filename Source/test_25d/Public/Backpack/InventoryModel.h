@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "Backpack/ReplicatedInventory.h"
 #include "InventoryModel.generated.h"
 
 class UItemDefinition;
@@ -65,6 +66,9 @@ struct FInventoryAddResult
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly)
+	bool bSucceeded = false;
+
+	UPROPERTY(BlueprintReadOnly)
 	int32 AcceptedQuantity = 0;
 
 	UPROPERTY(BlueprintReadOnly)
@@ -86,6 +90,8 @@ public:
 
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
 	bool UseItemAt(int32 SlotIndex);
+	bool SwapSlots(int32 IndexA, int32 IndexB);
+	void ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots);
 
     // InventoryModel.h 新增
     UFUNCTION(BlueprintCallable, Category = "Inventory")
@@ -98,10 +104,7 @@ public:
     UFUNCTION(BlueprintCallable)
     void RemoveItem(FName ItemID, int32 Count);
 
-    UFUNCTION(BlueprintCallable)
-    void SwapSlots(int32 IndexA, int32 IndexB);
-
-    const TArray<FInventoryItem>& GetItems() const { return Items; }
+	const TArray<FInventoryItem>& GetItems() const { return Items; }
 
     FOnInventoryUpdated OnInventoryUpdated;
 

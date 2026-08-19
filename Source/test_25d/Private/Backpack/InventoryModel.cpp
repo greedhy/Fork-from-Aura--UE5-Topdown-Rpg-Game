@@ -35,6 +35,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 		Result.RemainingQuantity -= Accepted;
 		if (Result.RemainingQuantity == 0)
 		{
+			Result.bSucceeded = true;
 			return Result;
 		}
 	}
@@ -57,6 +58,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 		}
 	}
 
+	Result.bSucceeded = Result.AcceptedQuantity > 0;
 	return Result;
 }
 
@@ -133,15 +135,44 @@ void UInventoryModel::RemoveItem(FName ItemID, int32 Count)
     OnInventoryUpdated.Broadcast(Items);
 }
 
-void UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
+bool UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
 {
-    if (!Slots.IsValidIndex(IndexA) || !Slots.IsValidIndex(IndexB) || IndexA == IndexB)
-    {
-        return;
-    }
+	if (!Slots.IsValidIndex(IndexA) || !Slots.IsValidIndex(IndexB) || IndexA == IndexB)
+	{
+		return false;
+	}
 
-    Swap(Slots[IndexA], Slots[IndexB]);
-    OnInventoryUpdated.Broadcast(Items);
+	Swap(Slots[IndexA], Slots[IndexB]);
+	OnInventoryUpdated.Broadcast(Items);
+	return true;
+}
+
+void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots)
+{
+	const int32 ClampedMaxSlots = FMath::Max(0, NewMaxSlots);
+	const bool bMaxSlotsChanged = MaxSlots != ClampedMaxSlots;
+	MaxSlots = ClampedMaxSlots;
+	Slots.SetNum(MaxSlots);
+
+	for (int32 SlotIndex = 0; SlotIndex < Slots.Num(); ++SlotIndex)
+	{
+		FInventorySlot& LocalSlot = Slots[SlotIndex];
+		if (ReplicatedSlots.IsValidIndex(SlotIndex) && !ReplicatedSlots[SlotIndex].IsEmpty())
+		{
+			LocalSlot.ItemDefinitionId = ReplicatedSlots[SlotIndex].ItemDefinitionId;
+			LocalSlot.Quantity = ReplicatedSlots[SlotIndex].Quantity;
+		}
+		else
+		{
+			LocalSlot.Clear();
+		}
+	}
+
+	if (bMaxSlotsChanged)
+	{
+		OnInventoryMaxSlotsChanged.Broadcast(MaxSlots);
+	}
+	OnInventoryUpdated.Broadcast(Items);
 }
 
 void UInventoryModel::SetMaxSlots(int32 NewMaxSlots)

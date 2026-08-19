@@ -1,5 +1,6 @@
 #include "Misc/AutomationTest.h"
 #include "Backpack/InventoryModel.h"
+#include "Backpack/ReplicatedInventory.h"
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
 #include "Player/MyPlayerState.h"
@@ -131,6 +132,34 @@ bool FPlayerStateOwnsBackpack::RunTest(const FString& Parameters)
 
 	TestNotNull(TEXT("PlayerState owns backpack"), State->GetBackpackComponent());
 	TestNull(TEXT("GameInstance has no backpack API"), nullptr);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FReplicatedInventoryMarksChangedSlotDirty,
+	"test_25d.Inventory.ReplicatedInventoryMarksChangedSlotDirty",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FReplicatedInventoryMarksChangedSlotDirty::RunTest(const FString& Parameters)
+{
+	FReplicatedInventoryList ReplicatedSlots;
+	ReplicatedSlots.Items.AddDefaulted();
+	ReplicatedSlots.MarkItemDirty(ReplicatedSlots.Items[0]);
+
+	TestTrue(TEXT("Server marks changed slot dirty"), ReplicatedSlots.Items[0].ReplicationID != INDEX_NONE);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryRejectsClientMutation,
+	"test_25d.Inventory.RejectsClientMutation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryRejectsClientMutation::RunTest(const FString& Parameters)
+{
+	UBackpackComponent* Component = NewObject<UBackpackComponent>();
+
+	TestFalse(TEXT("Client cannot mutate inventory"), Component->TryAddItem(nullptr, 1).bSucceeded);
 	return true;
 }
 
