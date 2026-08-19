@@ -3,6 +3,7 @@
 
 #include "Player/MyPlayerState.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
+#include "Backpack/BackpackComponent.h"
 #include <Net/UnrealNetwork.h>
 
 #include "AbilitySystem/MyAttributeSet.h"
@@ -17,7 +18,25 @@ AMyPlayerState::AMyPlayerState()
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 
 	AttributeSet = CreateDefaultSubobject<UMyAttributeSet>("AttributeSet");
+	BackpackComponent = CreateDefaultSubobject<UBackpackComponent>("BackpackComponent");
 
+}
+
+void AMyPlayerState::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		BackpackComponent->Initialize();
+	}
+
+}
+
+void AMyPlayerState::ClientInitialize(AController* C)
+{
+	Super::ClientInitialize(C);
+	BackpackComponent->Initialize();
 }
 
 void AMyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -102,4 +121,71 @@ void AMyPlayerState::AddToSpellPoints(int32 InPoints)
 {
 	SpellPoints += InPoints;
 	OnSpellPointsChangedDelegate.Broadcast(SpellPoints);
+}
+
+FBackpackSnapshot AMyPlayerState::ExportBackpackSnapshot() const
+{
+	FBackpackSnapshot Snapshot;
+	if (!IsValid(BackpackComponent))
+	{
+		return Snapshot;
+	}
+
+	Snapshot.Capacity = BackpackComponent->GetCapacity();
+	Snapshot.Revision = BackpackComponent->GetRevision();
+	const TArray<FReplicatedInventorySlot>& ReplicatedSlots = BackpackComponent->GetReplicatedSlots().Items;
+	Snapshot.Slots.SetNum(ReplicatedSlots.Num());
+	for (int32 SlotIndex = 0; SlotIndex < ReplicatedSlots.Num(); ++SlotIndex)
+	{
+		Snapshot.Slots[SlotIndex].ItemDefinitionId = ReplicatedSlots[SlotIndex].ItemDefinitionId;
+		Snapshot.Slots[SlotIndex].Quantity = ReplicatedSlots[SlotIndex].Quantity;
+	}
+	return Snapshot;
+}
+
+bool AMyPlayerState::ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot)
+{
+	if (!HasAuthority() || !IsValid(BackpackComponent) || Snapshot.Capacity < 0 || Snapshot.Slots.Num() != Snapshot.Capacity)
+	{
+		return false;
+	}
+
+	TArray<FReplicatedInventorySlot> ReplicatedSlots;
+	ReplicatedSlots.SetNum(Snapshot.Slots.Num());
+	for (int32 SlotIndex = 0; SlotIndex < Snapshot.Slots.Num(); ++SlotIndex)
+	{
+		FReplicatedInventorySlot& ReplicatedSlot = ReplicatedSlots[SlotIndex];
+		const FBackpackSnapshotSlot& SavedSlot = Snapshot.Slots[SlotIndex];
+		if (!SavedSlot.IsEmpty())
+		{
+			ReplicatedSlot.ItemDefinitionId = SavedSlot.ItemDefinitionId;
+			ReplicatedSlot.Quantity = SavedSlot.Quantity;
+		}
+	}
+	return BackpackComponent->RestorePersistentSlots(ReplicatedSlots, Snapshot.Capacity, Snapshot.Revision);
+}
+
+void AMyPlayerState::SetBackpackPersistencePlayerId(const FString& InPlayerId)
+{
+	BackpackPersistencePlayerId = InPlayerId;
+}
+
+void AMyPlayerState::CopyProperties(APlayerState* PlayerState)
+{
+	Super::CopyProperties(PlayerState);
+	if (AMyPlayerState* DestinationState = Cast<AMyPlayerState>(PlayerState))
+	{
+		DestinationState->SetBackpackPersistencePlayerId(BackpackPersistencePlayerId);
+		DestinationState->ImportBackpackSnapshot(ExportBackpackSnapshot());
+	}
+}
+
+void AMyPlayerState::OverrideWith(APlayerState* PlayerState)
+{
+	Super::OverrideWith(PlayerState);
+	if (const AMyPlayerState* SourceState = Cast<AMyPlayerState>(PlayerState))
+	{
+		SetBackpackPersistencePlayerId(SourceState->GetBackpackPersistencePlayerId());
+		ImportBackpackSnapshot(SourceState->ExportBackpackSnapshot());
+	}
 }

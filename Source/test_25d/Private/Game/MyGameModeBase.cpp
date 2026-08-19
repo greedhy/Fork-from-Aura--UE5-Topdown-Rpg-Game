@@ -17,7 +17,220 @@
 #include "Serialization/ObjectAndNameAsStringProxyArchive.h"
 #include "UI/ViewModel/MVVM_LoadSlot.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerController.h"
 #include "Interface/SaveInterface.h"
+#include "Backpack/BackpackComponent.h"
+#include "Player/MyPlayerState.h"
+
+AMyGameModeBase::AMyGameModeBase()
+	: BackpackPersistenceProvider(MakeUnique<FServerLocalBackpackPersistenceProvider>())
+{
+}
+
+void AMyGameModeBase::PostLogin(APlayerController* NewPlayer)
+{
+	FString PlayerId;
+	if (!NewPlayer || !PendingLoginPlayerIds.RemoveAndCopyValue(NewPlayer, PlayerId))
+	{
+		Super::PostLogin(NewPlayer);
+		return;
+	}
+
+	CompleteBackpackLogin(NewPlayer->GetPlayerState<AMyPlayerState>(), PlayerId);
+	Super::PostLogin(NewPlayer);
+}
+
+void AMyGameModeBase::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+	Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
+	if (!ErrorMessage.IsEmpty()) return;
+
+	FString PlayerId;
+	if (!ResolveStablePlayerIdForLogin(Options, UniqueId, PlayerId))
+	{
+		return;
+	}
+
+	BeginBackpackLogin(PlayerId, ErrorMessage);
+}
+
+APlayerController* AMyGameModeBase::Login(UPlayer* NewPlayer, ENetRole InRemoteRole, const FString& Portal, const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+	APlayerController* PlayerController = Super::Login(NewPlayer, InRemoteRole, Portal, Options, UniqueId, ErrorMessage);
+	FString PlayerId;
+	if (!ResolveStablePlayerIdForLogin(Options, UniqueId, PlayerId) || !PendingSessionLocks.Contains(PlayerId))
+	{
+		return PlayerController;
+	}
+
+	if (!IsValid(PlayerController) || !ErrorMessage.IsEmpty())
+	{
+		BackpackPersistenceProvider->ReleaseSessionLock(PlayerId);
+		PendingSessionLocks.Remove(PlayerId);
+		return PlayerController;
+	}
+
+	PendingLoginPlayerIds.Add(PlayerController, PlayerId);
+	return PlayerController;
+}
+
+void AMyGameModeBase::Logout(AController* Exiting)
+{
+	AMyPlayerState* PlayerState = Exiting ? Exiting->GetPlayerState<AMyPlayerState>() : nullptr;
+	FString PlayerId;
+	if (TryGetStablePlayerId(PlayerState, PlayerId))
+	{
+		const FActiveBackpackSession* Session = ActiveBackpackSessions.Find(PlayerId);
+		if (Session && Session->PlayerState.Get() == PlayerState)
+		{
+			PersistBackpack(PlayerId);
+			ReleaseBackpackSession(PlayerId);
+		}
+	}
+	Super::Logout(Exiting);
+}
+
+void AMyGameModeBase::ProcessServerTravel(const FString& URL, bool bAbsolute)
+{
+	HandleBackpackTravelPersistence(bUseSeamlessTravel);
+	Super::ProcessServerTravel(URL, bAbsolute);
+}
+
+void AMyGameModeBase::PostSeamlessTravel()
+{
+	Super::PostSeamlessTravel();
+	if (!HasAuthority() || !GameState) return;
+
+	TArray<AMyPlayerState*> PlayerStates;
+	for (APlayerState* CurrentPlayerState : GameState->PlayerArray)
+	{
+		if (AMyPlayerState* PlayerState = Cast<AMyPlayerState>(CurrentPlayerState)) PlayerStates.Add(PlayerState);
+	}
+	RestoreSeamlessBackpackSessions(PlayerStates);
+}
+
+bool AMyGameModeBase::ResolveStablePlayerIdForLogin(const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& OutPlayerId)
+{
+	OutPlayerId.Reset();
+	if (UniqueId.IsValid())
+	{
+		OutPlayerId = FString::Printf(TEXT("Online.%s"), *UniqueId.ToString());
+	}
+#if WITH_EDITOR || UE_BUILD_DEVELOPMENT
+	else if (const FString LocalDevelopmentId = UGameplayStatics::ParseOption(Options, TEXT("BackpackPlayerId")); !LocalDevelopmentId.IsEmpty())
+	{
+		OutPlayerId = FString::Printf(TEXT("LocalDev.%s"), *LocalDevelopmentId);
+	}
+#endif
+	return FServerLocalBackpackPersistenceProvider::IsValidPlayerId(OutPlayerId);
+}
+
+bool AMyGameModeBase::TryGetStablePlayerId(const AMyPlayerState* PlayerState, FString& OutPlayerId) const
+{
+	OutPlayerId.Reset();
+	if (!IsValid(PlayerState)) return false;
+	OutPlayerId = PlayerState->GetBackpackPersistencePlayerId();
+	return FServerLocalBackpackPersistenceProvider::IsValidPlayerId(OutPlayerId);
+}
+
+bool AMyGameModeBase::BeginBackpackLogin(const FString& PlayerId, FString& OutError)
+{
+	OutError.Reset();
+	if (!BackpackPersistenceProvider || !FServerLocalBackpackPersistenceProvider::IsValidPlayerId(PlayerId))
+	{
+		OutError = TEXT("backpack_invalid_identity");
+		return false;
+	}
+	if (!BackpackPersistenceProvider->AcquireSessionLock(PlayerId))
+	{
+		OutError = TEXT("backpack_duplicate_session");
+		return false;
+	}
+	PendingSessionLocks.Add(PlayerId);
+	return true;
+}
+
+bool AMyGameModeBase::CompleteBackpackLogin(AMyPlayerState* PlayerState, const FString& PlayerId)
+{
+	if (!PendingSessionLocks.Contains(PlayerId))
+	{
+		return false;
+	}
+	if (!IsValid(PlayerState))
+	{
+		BackpackPersistenceProvider->ReleaseSessionLock(PlayerId);
+		PendingSessionLocks.Remove(PlayerId);
+		return false;
+	}
+	PlayerState->SetBackpackPersistencePlayerId(PlayerId);
+	RegisterBackpackSession(PlayerState, PlayerId, true);
+	PendingSessionLocks.Remove(PlayerId);
+	return true;
+}
+
+bool AMyGameModeBase::LoadPersistedBackpackSnapshot(const FString& PlayerId, FBackpackSnapshot& OutSnapshot) const
+{
+	return BackpackPersistenceProvider && BackpackPersistenceProvider->Load(PlayerId, OutSnapshot);
+}
+
+void AMyGameModeBase::HandleBackpackTravelPersistence(bool bSeamlessTravel)
+{
+	for (const TPair<FString, FActiveBackpackSession>& Session : ActiveBackpackSessions) PersistBackpack(Session.Key);
+	if (!bSeamlessTravel)
+	{
+		TArray<FString> PlayerIds;
+		ActiveBackpackSessions.GetKeys(PlayerIds);
+		for (const FString& PlayerId : PlayerIds) ReleaseBackpackSession(PlayerId);
+	}
+}
+
+void AMyGameModeBase::RestoreSeamlessBackpackSessions(const TArray<AMyPlayerState*>& PlayerStates)
+{
+	for (AMyPlayerState* PlayerState : PlayerStates)
+	{
+		FString PlayerId;
+		if (TryGetStablePlayerId(PlayerState, PlayerId)) RegisterBackpackSession(PlayerState, PlayerId, false);
+	}
+}
+
+void AMyGameModeBase::RegisterBackpackSession(AMyPlayerState* PlayerState, const FString& PlayerId, bool bLoadSnapshot)
+{
+	if (!IsValid(PlayerState) || ActiveBackpackSessions.Contains(PlayerId)) return;
+	if (bLoadSnapshot)
+	{
+		FBackpackSnapshot Snapshot;
+		if (LoadPersistedBackpackSnapshot(PlayerId, Snapshot)) PlayerState->ImportBackpackSnapshot(Snapshot);
+	}
+
+	FActiveBackpackSession Session;
+	Session.PlayerState = PlayerState;
+	TWeakObjectPtr<AMyGameModeBase> WeakGameMode(this);
+	Session.MutationHandle = PlayerState->GetBackpackComponent()->OnBackpackStateChanged.AddLambda([WeakGameMode, PlayerId]()
+	{
+		if (AMyGameModeBase* GameMode = WeakGameMode.Get()) GameMode->PersistBackpack(PlayerId);
+	});
+	ActiveBackpackSessions.Add(PlayerId, MoveTemp(Session));
+}
+
+void AMyGameModeBase::PersistBackpack(const FString& PlayerId)
+{
+	const FActiveBackpackSession* Session = ActiveBackpackSessions.Find(PlayerId);
+	if (BackpackPersistenceProvider && Session && Session->PlayerState.IsValid())
+	{
+		BackpackPersistenceProvider->Save(PlayerId, Session->PlayerState->ExportBackpackSnapshot());
+	}
+}
+
+void AMyGameModeBase::ReleaseBackpackSession(const FString& PlayerId)
+{
+	if (FActiveBackpackSession* Session = ActiveBackpackSessions.Find(PlayerId))
+	{
+		if (Session->PlayerState.IsValid()) Session->PlayerState->GetBackpackComponent()->OnBackpackStateChanged.Remove(Session->MutationHandle);
+		ActiveBackpackSessions.Remove(PlayerId);
+	}
+	if (BackpackPersistenceProvider) BackpackPersistenceProvider->ReleaseSessionLock(PlayerId);
+}
 
 void AMyGameModeBase::SaveSlotData(UMVVM_LoadSlot* LoadSlot, int32 SlotIndex)
 {
@@ -230,6 +443,15 @@ AActor* AMyGameModeBase::ChoosePlayerStart_Implementation(AController* Player)
 
 void AMyGameModeBase::PlayerDied(ACharacter* DeadCharacter)
 {
+	if (IsValid(DeadCharacter))
+	{
+		if (AMyPlayerState* PlayerState = DeadCharacter->GetPlayerState<AMyPlayerState>())
+		{
+			FString PlayerId;
+			if (TryGetStablePlayerId(PlayerState, PlayerId)) PersistBackpack(PlayerId);
+		}
+	}
+
 	ULoadScreenSaveGame* SaveGame = RetrieveInGameSaveData();
 	if (!IsValid(SaveGame)) return;
 

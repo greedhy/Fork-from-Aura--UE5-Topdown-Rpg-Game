@@ -10,7 +10,7 @@ public class test_25d : ModuleRules
 	
 	
 
-        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "GameplayAbilities", "ModelViewViewModel" });
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "CoreOnline", "Engine", "InputCore", "EnhancedInput", "GameplayAbilities", "ModelViewViewModel", "NetCore", "OnlineSubsystem" });
 
         PrivateDependencyModuleNames.AddRange(new string[] { "GameplayTags", "GameplayTasks", "NavigationSystem", "Niagara", "AIModule" });
         // Uncomment if you are using Slate UI

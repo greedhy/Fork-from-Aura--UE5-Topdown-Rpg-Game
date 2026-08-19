@@ -40,6 +40,15 @@ public:
 	UFUNCTION(Client,Reliable)
 	void ShowDamageNumber(float DamageAccount,ACharacter* TargetCharacter, bool bBlockHit, bool bCriticalHit);
 
+	UFUNCTION(Server, Reliable)
+	void ServerRequestPickup(AActor* PickupActor);
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestSwap(int32 SourceSlotIndex, int32 TargetSlotIndex);
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestUse(int32 SlotIndex);
+
 	UFUNCTION(BlueprintCallable)
 	void ShowMagicCircle(UMaterialInterface* DecalMaterial = nullptr);
 
@@ -93,6 +102,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly)
 	float AutoRunAcceptanceRadius = 50.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Backpack", meta = (ClampMin = "0"))
+	float PickupRequestRange = 250.f;
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USplineComponent> Spline;
 

@@ -14,7 +14,6 @@ class TEST_25D_API UMyGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
 public:
-
 	UPROPERTY()
 	FName PlayerStartTag = FName();
 

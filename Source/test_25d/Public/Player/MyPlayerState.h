@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
 #include"AbilitySystemInterface.h"
+#include "Backpack/BackpackPersistence.h"
 
 #include "MyPlayerState.generated.h"
 
@@ -12,6 +13,7 @@ class ULevelUpInfo;
 // Forward declarations
 class UAbilitySystemComponent;
 class UAttributeSet;
+class UBackpackComponent;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlayerStatChanged, int32 /*StatValue*/)
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnLevelChanged, int32 /*StatValue*/, bool /*bLevelUp*/)
@@ -28,7 +30,9 @@ public:
 	AMyPlayerState();
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+	virtual void ClientInitialize(AController* C) override;
 	UAttributeSet* GetAttributeSet() const { return AttributeSet; }
+	UBackpackComponent* GetBackpackComponent() const { return BackpackComponent; }
 
 
 
@@ -57,12 +61,27 @@ public:
 
 	void SetAttributePoints(int32 InPoints);
 	void SetSpellPoints(int32 InPoints);
+
+	FBackpackSnapshot ExportBackpackSnapshot() const;
+	bool ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot);
+	void SetBackpackPersistencePlayerId(const FString& InPlayerId);
+	const FString& GetBackpackPersistencePlayerId() const { return BackpackPersistencePlayerId; }
+	virtual void CopyProperties(APlayerState* PlayerState) override;
+	virtual void OverrideWith(APlayerState* PlayerState) override;
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
 
 	UPROPERTY()
 	TObjectPtr<UAttributeSet> AttributeSet;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UBackpackComponent> BackpackComponent;
+
+	UPROPERTY()
+	FString BackpackPersistencePlayerId;
 
 
 private:

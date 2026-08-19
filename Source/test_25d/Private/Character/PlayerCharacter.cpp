@@ -354,3 +354,12 @@ void APlayerCharacter::SaveProgress_Implementation(const FName& CheckpointTag)
 		MyGameMode->SaveInGameProgressData(SaveData);
 	}
 }
+
+UBackpackComponent* APlayerCharacter::GetBackpackComponent() const
+{
+	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
+	{
+		return MyPlayerState->GetBackpackComponent();
+	}
+	return nullptr;
+}
