@@ -36,6 +36,11 @@ public:
 	virtual void PostSeamlessTravel() override;
 
 	static bool ResolveStablePlayerIdForLogin(const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& OutPlayerId);
+	bool BeginBackpackLogin(const FString& PlayerId, FString& OutError);
+	bool CompleteBackpackLogin(AMyPlayerState* PlayerState, const FString& PlayerId);
+	bool LoadPersistedBackpackSnapshot(const FString& PlayerId, FBackpackSnapshot& OutSnapshot) const;
+	void HandleBackpackTravelPersistence(bool bSeamlessTravel);
+	void RestoreSeamlessBackpackSessions(const TArray<AMyPlayerState*>& PlayerStates);
 
 	UPROPERTY(EditDefaultsOnly, Category = "Character Class Defaults")
 	TObjectPtr<UCharacterClassInfo> CharacterClassInfo;

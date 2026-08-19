@@ -491,6 +491,102 @@ bool FBackpackLocalDevelopmentIdentityIsStableAcrossReconnect::RunTest(const FSt
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FGameModeBackpackLoginLoadsAndRejectsDuplicate,
+	"test_25d.Inventory.GameModeBackpackLoginLoadsAndRejectsDuplicate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGameModeBackpackLoginLoadsAndRejectsDuplicate::RunTest(const FString& Parameters)
+{
+	const FString PlayerId = FString::Printf(TEXT("GameModeLogin_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	AMyGameModeBase* FirstGameMode = NewObject<AMyGameModeBase>();
+	AMyPlayerState* FirstState = NewObject<AMyPlayerState>();
+	FString ErrorMessage;
+	TestTrue(TEXT("Accepted stable login reserves a session"), FirstGameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	TestTrue(TEXT("Accepted login completes persistence wiring"), FirstGameMode->CompleteBackpackLogin(FirstState, PlayerId));
+
+	FBackpackSnapshot Snapshot;
+	Snapshot.Capacity = 2;
+	Snapshot.Slots.SetNum(2);
+	Snapshot.Slots[1].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("LoginPotion")));
+	Snapshot.Slots[1].Quantity = 6;
+	TestTrue(TEXT("First session owns a snapshot before travel"), FirstState->ImportBackpackSnapshot(Snapshot));
+	FirstGameMode->HandleBackpackTravelPersistence(false);
+
+	AMyGameModeBase* ReconnectedGameMode = NewObject<AMyGameModeBase>();
+	AMyPlayerState* ReconnectedState = NewObject<AMyPlayerState>();
+	ErrorMessage.Reset();
+	TestTrue(TEXT("Reconnect reserves the released stable identity"), ReconnectedGameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	TestTrue(TEXT("Reconnect loads through GameMode wiring"), ReconnectedGameMode->CompleteBackpackLogin(ReconnectedState, PlayerId));
+	TestEqual(TEXT("Accepted GameMode login restores saved slot order"), ReconnectedState->ExportBackpackSnapshot().Slots[1].ItemDefinitionId, Snapshot.Slots[1].ItemDefinitionId);
+
+	AMyGameModeBase* DuplicateGameMode = NewObject<AMyGameModeBase>();
+	ErrorMessage.Reset();
+	TestFalse(TEXT("Duplicate is rejected before gameplay initialization"), DuplicateGameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	TestEqual(TEXT("Duplicate rejection uses the pre-login error"), ErrorMessage, FString(TEXT("backpack_duplicate_session")));
+	ReconnectedGameMode->HandleBackpackTravelPersistence(false);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FGameModeBackpackMutationPersistsSnapshot,
+	"test_25d.Inventory.GameModeBackpackMutationPersistsSnapshot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGameModeBackpackMutationPersistsSnapshot::RunTest(const FString& Parameters)
+{
+	const FString PlayerId = FString::Printf(TEXT("GameModeMutation_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	AMyGameModeBase* GameMode = NewObject<AMyGameModeBase>();
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
+	FString ErrorMessage;
+	TestTrue(TEXT("Mutation test reserves a session"), GameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	TestTrue(TEXT("Mutation test registers GameMode persistence"), GameMode->CompleteBackpackLogin(State, PlayerId));
+
+	UItemDefinition* Potion = NewObject<UItemDefinition>();
+	TestTrue(TEXT("Authoritative mutation succeeds after GameMode registration"), State->GetBackpackComponent()->TryAddItem(Potion, 1).bSucceeded);
+	FBackpackSnapshot PersistedSnapshot;
+	TestTrue(TEXT("GameMode mutation callback saved the changed snapshot"), GameMode->LoadPersistedBackpackSnapshot(PlayerId, PersistedSnapshot));
+	TestEqual(TEXT("Callback save retained the changed quantity"), PersistedSnapshot.Slots[0].Quantity, 1);
+	GameMode->HandleBackpackTravelPersistence(false);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FGameModeBackpackSeamlessTravelRetainsSnapshotAndLock,
+	"test_25d.Inventory.GameModeBackpackSeamlessTravelRetainsSnapshotAndLock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGameModeBackpackSeamlessTravelRetainsSnapshotAndLock::RunTest(const FString& Parameters)
+{
+	const FString PlayerId = FString::Printf(TEXT("GameModeSeamless_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	AMyGameModeBase* SourceGameMode = NewObject<AMyGameModeBase>();
+	AMyPlayerState* SourceState = NewObject<AMyPlayerState>();
+	FString ErrorMessage;
+	TestTrue(TEXT("Seamless source reserves a session"), SourceGameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	TestTrue(TEXT("Seamless source registers persistence"), SourceGameMode->CompleteBackpackLogin(SourceState, PlayerId));
+
+	FBackpackSnapshot Snapshot;
+	Snapshot.Capacity = 2;
+	Snapshot.Slots.SetNum(2);
+	Snapshot.Slots[0].ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("Item")), FName(TEXT("SeamlessPotion")));
+	Snapshot.Slots[0].Quantity = 8;
+	TestTrue(TEXT("Seamless source imports a snapshot"), SourceState->ImportBackpackSnapshot(Snapshot));
+	SourceGameMode->HandleBackpackTravelPersistence(true);
+
+	AMyPlayerState* DestinationState = NewObject<AMyPlayerState>();
+	SourceState->CopyProperties(DestinationState);
+	AMyGameModeBase* DestinationGameMode = NewObject<AMyGameModeBase>();
+	DestinationGameMode->RestoreSeamlessBackpackSessions({ DestinationState });
+	TestEqual(TEXT("Seamless travel keeps the PlayerState snapshot"), DestinationState->ExportBackpackSnapshot().Slots[0].Quantity, 8);
+	TestEqual(TEXT("Seamless travel keeps the stable identity"), DestinationState->GetBackpackPersistencePlayerId(), PlayerId);
+
+	AMyGameModeBase* DuplicateGameMode = NewObject<AMyGameModeBase>();
+	ErrorMessage.Reset();
+	TestFalse(TEXT("Seamless travel retains the active session lock"), DuplicateGameMode->BeginBackpackLogin(PlayerId, ErrorMessage));
+	SourceGameMode->HandleBackpackTravelPersistence(false);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FViewModelSwapRequestDoesNotMutateModel,
 	"test_25d.Inventory.ViewModelSwapRequestDoesNotMutateModel",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
