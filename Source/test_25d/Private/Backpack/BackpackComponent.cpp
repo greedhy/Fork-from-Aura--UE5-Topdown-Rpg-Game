@@ -7,9 +7,12 @@
 #include "UI/ViewModel/MVVM_Backpack.h"
 
 // Sets default values
-void UBackpackComponent::BeginPlay()
+void UBackpackComponent::Initialize()
 {
-    Super::BeginPlay();
+    if (IsValid(InventoryModel))
+    {
+        return;
+    }
     InventoryModel = NewObject<UInventoryModel>(this);
     InventoryVM = NewObject<UMVVM_Backpack>(this);
     InventoryVM->Initialize(InventoryModel);

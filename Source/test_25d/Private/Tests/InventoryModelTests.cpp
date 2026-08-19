@@ -1,6 +1,8 @@
 #include "Misc/AutomationTest.h"
 #include "Backpack/InventoryModel.h"
 #include "Backpack/ItemDefinition.h"
+#include "Backpack/BackpackComponent.h"
+#include "Game/MyGameInstance.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -115,6 +117,22 @@ bool FInventoryUsesAndClearsFinalItem::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("Usable item can be used"), Model->UseItemAt(0));
 	TestTrue(TEXT("Using the final item leaves a stable empty slot"), Model->GetSlots()[0].IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FGameInstanceOwnsOneBackpack,
+	"test_25d.Inventory.GameInstanceOwnsOneBackpack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGameInstanceOwnsOneBackpack::RunTest(const FString& Parameters)
+{
+	UMyGameInstance* GameInstance = NewObject<UMyGameInstance>();
+	UBackpackComponent* FirstBackpack = GameInstance->GetBackpackComponent();
+	UBackpackComponent* SecondBackpack = GameInstance->GetBackpackComponent();
+
+	TestNotNull(TEXT("Game instance creates a backpack"), FirstBackpack);
+	TestEqual(TEXT("Game instance returns the persistent backpack"), FirstBackpack, SecondBackpack);
 	return true;
 }
 

@@ -17,7 +17,7 @@ class TEST_25D_API UBackpackComponent : public UActorComponent
 public:	
 
 
-	virtual void BeginPlay() override;
+	void Initialize();
 
 	UFUNCTION(BlueprintCallable)
 	void PickupItem(const FInventoryItem& Item);

@@ -11,6 +11,7 @@ class USpringArmComponent;
 
 class UCameraComponent;
 class UNiagaraComponent;
+class UBackpackComponent;
 
 UCLASS()
 class TEST_25D_API APlayerCharacter : public ABaseCharacter,public IPlayerInterface
@@ -37,6 +38,9 @@ public:
 	virtual void ShowMagicCircle_Implementation(UMaterialInterface* DecalMaterial) override;
 	virtual void HideMagicCircle_Implementation() override;
 	virtual void SaveProgress_Implementation(const FName& CheckpointTag) override;
+
+	UFUNCTION(BlueprintPure, Category = "Backpack")
+	UBackpackComponent* GetBackpackComponent() const;
 
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
