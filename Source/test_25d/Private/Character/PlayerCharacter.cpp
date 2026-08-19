@@ -17,7 +17,6 @@
 #include "AbilitySystem/Debuff/DebuffNiagaraComponent.h"
 #include "Game/LoadScreenSaveGame.h"
 #include "Game/MyGameModeBase.h"
-#include "Game/MyGameInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "AbilitySystem/MyAttributeSet.h"
 #include "AbilitySystem/Data/AbilityInfo.h"
@@ -358,9 +357,9 @@ void APlayerCharacter::SaveProgress_Implementation(const FName& CheckpointTag)
 
 UBackpackComponent* APlayerCharacter::GetBackpackComponent() const
 {
-	if (UMyGameInstance* GameInstance = GetGameInstance<UMyGameInstance>())
+	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
 	{
-		return GameInstance->GetBackpackComponent();
+		return MyPlayerState->GetBackpackComponent();
 	}
 	return nullptr;
 }

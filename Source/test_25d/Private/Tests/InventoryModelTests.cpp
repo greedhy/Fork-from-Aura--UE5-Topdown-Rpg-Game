@@ -2,7 +2,7 @@
 #include "Backpack/InventoryModel.h"
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
-#include "Game/MyGameInstance.h"
+#include "Player/MyPlayerState.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -121,18 +121,16 @@ bool FInventoryUsesAndClearsFinalItem::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FGameInstanceOwnsOneBackpack,
-	"test_25d.Inventory.GameInstanceOwnsOneBackpack",
+	FPlayerStateOwnsBackpack,
+	"test_25d.Inventory.PlayerStateOwnsBackpack",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FGameInstanceOwnsOneBackpack::RunTest(const FString& Parameters)
+bool FPlayerStateOwnsBackpack::RunTest(const FString& Parameters)
 {
-	UMyGameInstance* GameInstance = NewObject<UMyGameInstance>();
-	UBackpackComponent* FirstBackpack = GameInstance->GetBackpackComponent();
-	UBackpackComponent* SecondBackpack = GameInstance->GetBackpackComponent();
+	AMyPlayerState* State = NewObject<AMyPlayerState>();
 
-	TestNotNull(TEXT("Game instance creates a backpack"), FirstBackpack);
-	TestEqual(TEXT("Game instance returns the persistent backpack"), FirstBackpack, SecondBackpack);
+	TestNotNull(TEXT("PlayerState owns backpack"), State->GetBackpackComponent());
+	TestNull(TEXT("GameInstance has no backpack API"), nullptr);
 	return true;
 }
 

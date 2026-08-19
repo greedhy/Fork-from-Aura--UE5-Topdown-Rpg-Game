@@ -3,6 +3,7 @@
 
 #include "Player/MyPlayerState.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
+#include "Backpack/BackpackComponent.h"
 #include <Net/UnrealNetwork.h>
 
 #include "AbilitySystem/MyAttributeSet.h"
@@ -17,6 +18,18 @@ AMyPlayerState::AMyPlayerState()
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 
 	AttributeSet = CreateDefaultSubobject<UMyAttributeSet>("AttributeSet");
+	BackpackComponent = CreateDefaultSubobject<UBackpackComponent>("BackpackComponent");
+
+}
+
+void AMyPlayerState::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		BackpackComponent->Initialize();
+	}
 
 }
 

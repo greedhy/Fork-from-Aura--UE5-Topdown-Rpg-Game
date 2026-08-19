@@ -6,8 +6,6 @@
 #include "Engine/GameInstance.h"
 #include "MyGameInstance.generated.h"
 
-class UBackpackComponent;
-
 /**
  * 
  */
@@ -16,8 +14,6 @@ class TEST_25D_API UMyGameInstance : public UGameInstance
 {
 	GENERATED_BODY()
 public:
-	UBackpackComponent* GetBackpackComponent();
-
 	UPROPERTY()
 	FName PlayerStartTag = FName();
 
@@ -26,8 +22,4 @@ public:
 
 	UPROPERTY()
 	int32 LoadSlotIndex = 0;
-
-private:
-	UPROPERTY()
-	TObjectPtr<UBackpackComponent> BackpackComponent;
 };
