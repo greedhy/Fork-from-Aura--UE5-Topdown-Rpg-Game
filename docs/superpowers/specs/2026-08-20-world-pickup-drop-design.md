@@ -13,9 +13,15 @@ Extend the server-authoritative backpack with data-asset-driven world pickup and
 
 Quantity selection, per-player pickup reservations, timed pickup ownership, and item expiration are out of scope.
 
-## Item Pickup Configuration
+## Item Definition Table
 
-`UItemDefinition` replaces `bAutoPickup` with `EPickupMode`:
+The project uses one central definition-table asset, following Elemagic's `DA_ItemDefinitions` pattern:
+
+`Content/BluePrints/DA/DA_BackpackItemDefinitions.uasset`
+
+`UBackpackItemDefinitions` contains `TArray<FBackpackItemDefEntry>` and resolves a stable `FPrimaryAssetId` to its static item data. Each entry stores the item ID, display name, icon, optional world visual, pickup mode, stack limit, usability, and gameplay effect. Backpack stable slots retain their current `FPrimaryAssetId` identity, so the existing Fast Array replication and persistence format remain valid.
+
+`EPickupMode` is defined beside the table entry:
 
 ```cpp
 UENUM(BlueprintType)
@@ -26,15 +32,15 @@ enum class EPickupMode : uint8
 };
 ```
 
-Each `UItemDefinition` primary data asset stores its default pickup mode. This setting applies when a world pickup is authored or otherwise spawned as a normal world item. It does not change at runtime.
+Each table entry supplies its default pickup mode. This setting applies when a world pickup is authored or otherwise spawned as a normal world item. It does not change at runtime.
 
 ## World Pickup Runtime State
 
-`AWorldPickup` remains the single replicated actor for every world item. Alongside its item definition and quantity, it replicates an effective pickup mode.
+`AWorldPickup` remains the single replicated actor for every world item. Alongside its item ID and quantity, it replicates an effective pickup mode.
 
-Normal world spawns initialize the effective mode from the definition asset. A dropped item explicitly overrides that effective mode to `Interact`, regardless of the definition default. The override is actor state only: it never modifies the source item asset.
+Normal world spawns resolve their item ID through `DA_BackpackItemDefinitions` and initialize the effective mode from the matching table entry. A dropped item explicitly overrides that effective mode to `Interact`, regardless of the definition default. The override is actor state only: it never modifies the definition table.
 
-The actor exposes a collision/interaction range, its effective mode, item display data, and replicated quantity for presentation. It does not own or mutate client inventory state.
+The actor exposes a collision/interaction range, its effective mode, resolved item display data, and replicated quantity for presentation. It does not own or mutate client inventory state.
 
 ## Pickup Flows
 
@@ -61,7 +67,7 @@ The drop request has no quantity argument. It always removes the complete stack 
 ## Authority and UI Boundaries
 
 ```
-Item definition asset -> default pickup mode
+Definition table entry -> default pickup mode
                            |
 World pickup effective mode -> auto overlap on server
                             -> E request from local player -> ServerRequestPickup
@@ -86,7 +92,7 @@ Automation tests cover:
 3. `Interact` pickup does not collect without a valid `E` request.
 4. Partial pickup retains the correct world remainder.
 5. Dropping removes a complete stack only after a world pickup successfully spawns.
-6. A dropped `Auto`-configured item has effective mode `Interact` and is not auto-collected.
+6. A dropped `Auto`-configured table entry has effective mode `Interact` and is not auto-collected.
 7. Any other player can immediately interact-pick up a dropped item.
 8. Invalid, empty, forged, stale, and out-of-range pickup/drop requests make no mutation.
 
