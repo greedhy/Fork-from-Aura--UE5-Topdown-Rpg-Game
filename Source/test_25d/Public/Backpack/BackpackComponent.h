@@ -10,8 +10,8 @@
 
 class UMVVM_Backpack;
 class UItemDefinition;
+class UBackpackItemDefinitions;
 class APawn;
-class AWorldPickup;
 class AMyPlayerController;
 
 DECLARE_MULTICAST_DELEGATE(FOnBackpackStateChanged);
@@ -26,7 +26,10 @@ public:
 
 	void Initialize();
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
-	FInventoryAddResult TryPickup(AWorldPickup* Pickup);
+	FInventoryAddResult TryAddItem(const FPrimaryAssetId& ItemDefinitionId, int32 Quantity);
+	void SetItemDefinitions(UBackpackItemDefinitions* InItemDefinitions);
+	static void ConfigureSpawnedPickupActor(AActor* PickupActor);
+	bool DropWholeStack(int32 SlotIndex, const FVector& SpawnLocation);
 	bool SwapSlots(int32 IndexA, int32 IndexB);
 	bool TryUseItemForPawn(int32 SlotIndex, APawn* Pawn);
 	bool SetCapacity(int32 NewCapacity);
@@ -46,6 +49,9 @@ public:
 
 	UPROPERTY(BlueprintReadOnly)
 	UMVVM_Backpack* InventoryVM;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Backpack")
+	TObjectPtr<UBackpackItemDefinitions> ItemDefinitions;
 
 private:
 	UFUNCTION()

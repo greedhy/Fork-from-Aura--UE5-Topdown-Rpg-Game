@@ -1,6 +1,18 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "UI/Widget/BackpackWidget.h"
+#include "UI/ViewModel/MVVM_Backpack.h"
+#include "MVVMSubsystem.h"
+#include "View/MVVMView.h"
+
+void UBackpackWidget::SetBackpackViewModel(UMVVM_Backpack* InBackpackViewModel)
+{
+	BackpackViewModel = InBackpackViewModel;
+	if (UMVVMView* MVVMView = UMVVMSubsystem::GetViewFromUserWidget(this))
+	{
+		MVVMView->SetViewModelByClass(InBackpackViewModel);
+	}
+}
 //OperateUI.cpp
 
 //

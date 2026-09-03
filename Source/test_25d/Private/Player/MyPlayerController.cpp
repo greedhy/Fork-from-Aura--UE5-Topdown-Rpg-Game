@@ -19,9 +19,13 @@
 #include "Interface/HighLightInterface.h"
 #include "Interface/IEnemyInterface.h"
 #include "Backpack/BackpackComponent.h"
-#include "Backpack/WorldPickup.h"
+#include "Backpack/WorldPickupComponent.h"
 #include "Player/MyPlayerState.h"
+#include "UI/Widget/MyUserWidget.h"
+#include "UI/Widget/BackpackWidget.h"
+#include "UI/ViewModel/MVVM_Backpack.h"
 #include "test_25d/test_25d.h"
+#include "TimerManager.h"
 
 AMyPlayerController::AMyPlayerController()
 {
@@ -55,37 +59,123 @@ void AMyPlayerController::ShowDamageNumber_Implementation(float DamageAccount, A
 	}
 }
 
-void AMyPlayerController::ServerRequestPickup_Implementation(AActor* PickupActor)
-{
-	AWorldPickup* Pickup = Cast<AWorldPickup>(PickupActor);
-	if (!HasAuthority() || !IsValid(Pickup) || !Pickup->HasAuthority())
-	{
-		return;
-	}
-
-	APawn* ControlledPawn = GetPawn();
-	if (!IsValid(ControlledPawn) || FVector::DistSquared(ControlledPawn->GetActorLocation(), PickupActor->GetActorLocation()) > FMath::Square(PickupRequestRange))
-	{
-		return;
-	}
-
-	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
-	{
-		MyPlayerState->GetBackpackComponent()->TryPickup(Pickup);
-	}
-}
-
-void AMyPlayerController::ServerRequestSwap_Implementation(int32 SourceSlotIndex, int32 TargetSlotIndex)
+void AMyPlayerController::ServerRequestPickup_Implementation()
 {
 	if (!HasAuthority())
 	{
 		return;
 	}
 
+	AActor* PickupActor = GetRandomOverlappingInteractPickup();
+	if (UWorldPickupComponent* PickupComponent = IsValid(PickupActor) ? PickupActor->FindComponentByClass<UWorldPickupComponent>() : nullptr)
+	{
+		if (PickupComponent->GetPickupMode() != EPickupMode::Interact)
+		{
+			return;
+		}
+		APawn* ControlledPawn = GetPawn();
+		if (IsValid(ControlledPawn))
+		{
+			PickupComponent->TryPickup(GetPlayerState<AMyPlayerState>());
+		}
+		return;
+	}
+
+}
+
+void AMyPlayerController::ServerRequestDropWholeStack_Implementation(int32 SlotIndex)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	APawn* ControlledPawn = GetPawn();
+	AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>();
+	if (!IsValid(ControlledPawn) || !IsValid(MyPlayerState))
+	{
+		return;
+	}
+
+	const FVector DropLocation = ControlledPawn->GetActorLocation() + ControlledPawn->GetActorForwardVector() * 100.f;
+	MyPlayerState->GetBackpackComponent()->DropWholeStack(SlotIndex, DropLocation);
+}
+
+void AMyPlayerController::ToggleBackpackUI()
+{
+	if (bBackpackUIOpen) CloseBackpackUI();
+	else OpenBackpackUI();
+}
+
+void AMyPlayerController::OpenBackpackUI()
+{
+	if (!IsLocalController() || !BackpackWidgetClass) return;
+	// TileView creates and binds its entry widgets on the first layout pass.  Keep that
+	// initialization frame invisible so the entry template cannot flash on screen.
+	if (!IsValid(BackpackWidget))
+	{
+		BackpackWidget = CreateWidget<UUserWidget>(this, BackpackWidgetClass);
+		if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
+		{
+			MyPlayerState->GetBackpackComponent()->InventoryVM->OnDropRequested.AddWeakLambda(this, [this](int32 SlotIndex)
+			{
+				ServerRequestDropWholeStack(SlotIndex);
+			});
+			if (UBackpackWidget* BackpackUI = Cast<UBackpackWidget>(BackpackWidget))
+			{
+				BackpackUI->SetBackpackViewModel(MyPlayerState->GetBackpackComponent()->InventoryVM);
+			}
+			else if (UMyUserWidget* WidgetWithController = Cast<UMyUserWidget>(BackpackWidget))
+			{
+				WidgetWithController->SetWidgetController(MyPlayerState->GetBackpackComponent()->InventoryVM);
+			}
+		}
+	}
+	BackpackWidget->SetRenderOpacity(0.f);
+	BackpackWidget->AddToViewport();
+	bBackpackUIOpen = true;
+	BackpackWidget->ForceLayoutPrepass();
+	GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		if (bBackpackUIOpen && IsValid(BackpackWidget))
+		{
+			BackpackWidget->SetRenderOpacity(1.f);
+		}
+	}));
+	bShowMouseCursor = true;
+	FInputModeGameAndUI InputMode;
+	InputMode.SetWidgetToFocus(BackpackWidget->TakeWidget());
+	InputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(InputMode);
+}
+
+void AMyPlayerController::CloseBackpackUI()
+{
+	if (!IsLocalController() || !IsValid(BackpackWidget)) return;
+	BackpackWidget->RemoveFromParent();
+	bBackpackUIOpen = false;
+	bShowMouseCursor = true;
+	FInputModeGameAndUI InputMode;
+	InputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(InputMode);
+}
+
+void AMyPlayerController::ServerRequestSwap_Implementation(int32 SourceSlotIndex, int32 TargetSlotIndex)
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Swap RPC ignored without server authority: %d -> %d."), SourceSlotIndex, TargetSlotIndex);
+		return;
+	}
+
 	if (AMyPlayerState* MyPlayerState = GetPlayerState<AMyPlayerState>())
 	{
-		MyPlayerState->GetBackpackComponent()->SwapSlots(SourceSlotIndex, TargetSlotIndex);
+		const bool bSwapped = MyPlayerState->GetBackpackComponent()->SwapSlots(SourceSlotIndex, TargetSlotIndex);
+		UE_LOG(LogTemp, Log, TEXT("[BackpackDrag] Server received swap RPC %d -> %d; result=%s."), SourceSlotIndex, TargetSlotIndex, bSwapped ? TEXT("true") : TEXT("false"));
+		return;
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Server rejected swap RPC %d -> %d: PlayerState unavailable."), SourceSlotIndex, TargetSlotIndex);
 }
 
 void AMyPlayerController::ServerRequestUse_Implementation(int32 SlotIndex)
@@ -212,6 +302,16 @@ void AMyPlayerController::AbilityInputTagPressed(FGameplayTag InputTag)
 	{
 		return;
 	}
+	if (InputTag.MatchesTagExact(FMyGameplayTags::Get().InputTag_Backpack))
+	{
+		ToggleBackpackUI();
+		return;
+	}
+	if (InputTag.MatchesTagExact(FMyGameplayTags::Get().InputTag_Pickup))
+	{
+		RequestPickupFocusedActor();
+		return;
+	}
 	if (InputTag.MatchesTagExact(FMyGameplayTags::Get().InputTag_LMB))
 	{
 		if (IsValid(ThisActor))
@@ -225,6 +325,53 @@ void AMyPlayerController::AbilityInputTagPressed(FGameplayTag InputTag)
 		bAutoRunning = false;
 	}
 	if (GetASC()) GetASC()->AbilityInputTagPressed(InputTag);
+}
+
+void AMyPlayerController::RequestPickupFocusedActor()
+{
+	ServerRequestPickup();
+}
+
+void AMyPlayerController::RegisterOverlappingInteractPickup(AActor* PickupActor)
+{
+	if (IsValid(PickupActor))
+	{
+		++OverlappingInteractPickups.FindOrAdd(PickupActor);
+	}
+}
+
+void AMyPlayerController::UnregisterOverlappingInteractPickup(AActor* PickupActor)
+{
+	if (int32* OverlapCount = OverlappingInteractPickups.Find(PickupActor))
+	{
+		if (--(*OverlapCount) <= 0)
+		{
+			OverlappingInteractPickups.Remove(PickupActor);
+		}
+	}
+}
+
+AActor* AMyPlayerController::GetRandomOverlappingInteractPickup()
+{
+	TArray<AActor*> Candidates;
+	for (auto It = OverlappingInteractPickups.CreateIterator(); It; ++It)
+	{
+		if (IsValid(It.Key().Get()) && It.Value() > 0)
+		{
+			Candidates.Add(It.Key().Get());
+		}
+		else
+		{
+			It.RemoveCurrent();
+		}
+	}
+
+	return Candidates.IsEmpty() ? nullptr : Candidates[FMath::RandHelper(Candidates.Num())];
+}
+
+int32 AMyPlayerController::GetOverlappingInteractPickupCount() const
+{
+	return OverlappingInteractPickups.Num();
 }
 
 void AMyPlayerController::AbilityInputTagReleased(FGameplayTag InputTag)

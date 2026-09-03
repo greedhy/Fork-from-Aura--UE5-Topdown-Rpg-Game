@@ -3,13 +3,16 @@
 #include "Backpack/ReplicatedInventory.h"
 #include "Backpack/ItemDefinition.h"
 #include "Backpack/BackpackComponent.h"
+#include "Backpack/WorldPickupComponent.h"
 #include "Backpack/BackpackPersistence.h"
-#include "Backpack/WorldPickup.h"
 #include "Player/MyPlayerState.h"
+#include "Player/MyPlayerController.h"
+#include "Actor/MyEnemySpawnVolume.h"
 #include "Game/MyGameModeBase.h"
 #include "Tests/InventoryTestGameplayEffects.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
+#include "MyGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -76,6 +79,59 @@ bool FInventoryItemDefinitionUsesSafeDefaults::RunTest(const FString& Parameters
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryItemDefinitionCatalogResolvesStableIds,
+	"test_25d.Inventory.ItemDefinitionCatalog",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryItemDefinitionCatalogResolvesStableIds::RunTest(const FString& Parameters)
+{
+	UBackpackItemDefinitions* Definitions = NewObject<UBackpackItemDefinitions>();
+	FBackpackItemDefEntry HealthPotion;
+	HealthPotion.ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("BackpackItem")), FName(TEXT("HealthPotion")));
+	HealthPotion.PickupMode = EPickupMode::Auto;
+	HealthPotion.MaxStack = 10;
+	Definitions->Items.Add(HealthPotion);
+
+	const FBackpackItemDefEntry* Found = Definitions->FindDefinition(HealthPotion.ItemDefinitionId);
+	TestNotNull(TEXT("Configured stable ID resolves"), Found);
+	if (Found)
+	{
+		TestEqual(TEXT("Configured pickup mode is preserved"), Found->PickupMode, EPickupMode::Auto);
+		TestEqual(TEXT("Configured stack limit is preserved"), Found->MaxStack, 10);
+	}
+
+	const FPrimaryAssetId MissingId(FPrimaryAssetType(TEXT("BackpackItem")), FName(TEXT("Missing")));
+	TestNull(TEXT("Unknown stable ID is rejected"), Definitions->FindDefinition(MissingId));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryAddsCatalogItemByStableId,
+	"test_25d.Inventory.AddsCatalogItemByStableId",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryAddsCatalogItemByStableId::RunTest(const FString& Parameters)
+{
+	UBackpackItemDefinitions* Definitions = NewObject<UBackpackItemDefinitions>();
+	FBackpackItemDefEntry HealthPotion;
+	HealthPotion.ItemDefinitionId = FPrimaryAssetId(FPrimaryAssetType(TEXT("BackpackItem")), FName(TEXT("HealthPotion")));
+	HealthPotion.bStackable = true;
+	HealthPotion.MaxStack = 10;
+	Definitions->Items.Add(HealthPotion);
+
+	UInventoryModel* Model = NewObject<UInventoryModel>();
+	Model->InitializeSlots(1);
+	Model->SetItemDefinitions(Definitions);
+	const FInventoryAddResult Result = Model->TryAddItem(HealthPotion.ItemDefinitionId, 12);
+
+	TestEqual(TEXT("Catalog ID fills one stack"), Result.AcceptedQuantity, 10);
+	TestEqual(TEXT("Catalog ID preserves unaccepted remainder"), Result.RemainingQuantity, 2);
+	TestEqual(TEXT("Catalog ID is written to the stable slot"), Model->GetSlots()[0].ItemDefinitionId, HealthPotion.ItemDefinitionId);
+	TestFalse(TEXT("Unknown catalog ID is rejected"), Model->TryAddItem(FPrimaryAssetId(FPrimaryAssetType(TEXT("BackpackItem")), FName(TEXT("Unknown"))), 1).bSucceeded);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FInventoryPartiallyAddsToRemainingStack,
 	"test_25d.Inventory.PartiallyAddsToRemainingStack",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -132,13 +188,29 @@ bool FInventoryShrinksByDiscardingTailSlots::RunTest(const FString& Parameters)
 
 	Component->TryAddItem(Potion, 3);
 	const int32 RevisionBeforeCapacityChange = Component->GetRevision();
-	TestTrue(TEXT("Authoritative component accepts capacity change"), Component->SetCapacity(2));
-
+	TestTrue(TEXT("Authoritative component accepts a capacity decrease"), Component->SetCapacity(2));
 	TestEqual(TEXT("Capacity and replicated list shrink together"), Component->GetReplicatedSlots().Items.Num(), Component->GetCapacity());
-	TestEqual(TEXT("Capacity removes the tail slot"), Component->GetInventoryModel()->GetSlots().Num(), 2);
+	TestEqual(TEXT("Capacity removes the tail slots"), Component->GetInventoryModel()->GetSlots().Num(), 2);
 	TestFalse(TEXT("Existing slot zero is preserved"), Component->GetInventoryModel()->GetSlots()[0].IsEmpty());
 	TestFalse(TEXT("Existing slot one is preserved"), Component->GetInventoryModel()->GetSlots()[1].IsEmpty());
 	TestEqual(TEXT("Capacity mutation advances revision once"), Component->GetRevision(), RevisionBeforeCapacityChange + 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FBackpackMaxSlotsTextContainsOnlyCapacity,
+	"test_25d.Inventory.BackpackMaxSlotsTextContainsOnlyCapacity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FBackpackMaxSlotsTextContainsOnlyCapacity::RunTest(const FString& Parameters)
+{
+	UInventoryModel* Model = NewObject<UInventoryModel>();
+	Model->InitializeSlots(16);
+	UMVVM_Backpack* ViewModel = NewObject<UMVVM_Backpack>();
+	ViewModel->Initialize(Model);
+
+	TestEqual(TEXT("Capacity text contains only the slot count"),
+		ViewModel->GetMaxSlotsText().ToString(), FString(TEXT("16")));
 	return true;
 }
 
@@ -246,30 +318,6 @@ bool FInventoryConsumesWhenDurationEffectSucceeds::RunTest(const FString& Parame
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FInventoryPickupTransfersOnlyAcceptedQuantity,
-	"test_25d.Inventory.PickupTransfersOnlyAcceptedQuantity",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FInventoryPickupTransfersOnlyAcceptedQuantity::RunTest(const FString& Parameters)
-{
-	AMyPlayerState* State = NewObject<AMyPlayerState>();
-	UBackpackComponent* Component = State->GetBackpackComponent();
-	UItemDefinition* Potion = NewObject<UItemDefinition>();
-	Potion->bStackable = true;
-	Potion->MaxStack = 2;
-	AWorldPickup* Pickup = NewObject<AWorldPickup>();
-	Pickup->SetItemDefinition(Potion);
-	Pickup->SetQuantity(3);
-
-	TestTrue(TEXT("Inventory capacity is limited to one slot"), Component->SetCapacity(1));
-	const FInventoryAddResult Result = Component->TryPickup(Pickup);
-	TestEqual(TEXT("Pickup transfers only capacity accepted quantity"), Result.AcceptedQuantity, 2);
-	TestEqual(TEXT("Partial pickup retains world remainder"), Pickup->GetQuantity(), 1);
-	TestEqual(TEXT("Inventory received accepted quantity"), Component->GetInventoryModel()->GetSlots()[0].Quantity, 2);
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FPlayerStateOwnsBackpack,
 	"test_25d.Inventory.PlayerStateOwnsBackpack",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -335,7 +383,7 @@ bool FReplicatedSlotsDriveTypedViewModels::RunTest(const FString& Parameters)
 
 	UMVVM_Backpack* ViewModel = NewObject<UMVVM_Backpack>();
 	ViewModel->Initialize(Model);
-	const TArray<UObject*>& SlotViewModels = ViewModel->GetSlotViewModels();
+        const TArray<UMVVM_InventorySlot*>& SlotViewModels = ViewModel->GetSlotViewModels();
 	UMVVM_InventorySlot* FirstSlot = Cast<UMVVM_InventorySlot>(SlotViewModels[0]);
 
 	TestEqual(TEXT("View model count follows stable slots"), SlotViewModels.Num(), 2);
@@ -604,6 +652,80 @@ bool FViewModelSwapRequestDoesNotMutateModel::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("Intent request leaves source slot unchanged"), Model->GetSlots()[0].IsEmpty());
 	TestTrue(TEXT("Intent request leaves target slot unchanged"), Model->GetSlots()[1].IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventorySlotNormalBackgroundIsTransparent,
+	"test_25d.Inventory.SlotNormalBackgroundIsTransparent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventorySlotNormalBackgroundIsTransparent::RunTest(const FString& Parameters)
+{
+	UMVVM_InventorySlot* Slot = NewObject<UMVVM_InventorySlot>();
+
+	TestEqual(TEXT("A normal slot leaves the Designer background visible"),
+		Slot->GetSlotBackgroundTint(), FLinearColor::Transparent);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryInputTagsExposeBackpackAndPickup,
+	"test_25d.Inventory.InputTagsExposeBackpackAndPickup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryInputTagsExposeBackpackAndPickup::RunTest(const FString& Parameters)
+{
+	const FMyGameplayTags& Tags = FMyGameplayTags::Get();
+	TestTrue(TEXT("Backpack input is exposed as a gameplay tag"), Tags.InputTag_Backpack.IsValid());
+	TestTrue(TEXT("Pickup input is exposed as a gameplay tag"), Tags.InputTag_Pickup.IsValid());
+	TestEqual(TEXT("Backpack tag has the blueprint-facing name"), Tags.InputTag_Backpack.GetTagName(), FName(TEXT("InputTag.Backpack")));
+	TestEqual(TEXT("Pickup tag has the blueprint-facing name"), Tags.InputTag_Pickup.GetTagName(), FName(TEXT("InputTag.Pickup")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryInteractPickupTracksOverlapsAndChoosesCandidate,
+	"test_25d.Inventory.InteractPickupTracksOverlapsAndChoosesCandidate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryInteractPickupTracksOverlapsAndChoosesCandidate::RunTest(const FString& Parameters)
+{
+	AMyPlayerController* Controller = NewObject<AMyPlayerController>();
+	AActor* FirstPickup = NewObject<AActor>();
+	AActor* SecondPickup = NewObject<AActor>();
+
+	Controller->RegisterOverlappingInteractPickup(FirstPickup);
+	Controller->RegisterOverlappingInteractPickup(FirstPickup);
+	Controller->RegisterOverlappingInteractPickup(SecondPickup);
+	TestEqual(TEXT("Duplicate primitive overlaps retain two distinct pickup actors"), Controller->GetOverlappingInteractPickupCount(), 2);
+
+	AActor* ChosenPickup = Controller->GetRandomOverlappingInteractPickup();
+	TestTrue(TEXT("Random interact pickup is one of the currently overlapping actors"), ChosenPickup == FirstPickup || ChosenPickup == SecondPickup);
+
+	Controller->UnregisterOverlappingInteractPickup(FirstPickup);
+	TestEqual(TEXT("One of two component end-overlaps keeps the actor registered"), Controller->GetOverlappingInteractPickupCount(), 2);
+	Controller->UnregisterOverlappingInteractPickup(FirstPickup);
+	TestEqual(TEXT("The final end-overlap removes the pickup actor"), Controller->GetOverlappingInteractPickupCount(), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FInventoryNetworkedDropAndEnemySpawnAreServerAuthoritative,
+	"test_25d.Inventory.NetworkedDropAndEnemySpawnAreServerAuthoritative",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FInventoryNetworkedDropAndEnemySpawnAreServerAuthoritative::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("The server may spawn enemies from a player overlap"), AMyEnemySpawnVolume::ShouldSpawnForOverlap(true, true));
+	TestFalse(TEXT("A client overlap may not spawn a local enemy"), AMyEnemySpawnVolume::ShouldSpawnForOverlap(false, true));
+
+	AActor* DroppedActor = NewObject<AActor>();
+	DroppedActor->SetReplicates(false);
+	DroppedActor->SetReplicateMovement(false);
+	UWorldPickupComponent::ConfigureOwnerForNetworkedPickup(DroppedActor);
+	TestTrue(TEXT("Any pickup actor, including enemy loot, replicates to every client"), DroppedActor->GetIsReplicated());
+	TestTrue(TEXT("Any pickup actor, including enemy loot, replicates its movement"), DroppedActor->IsReplicatingMovement());
 	return true;
 }
 

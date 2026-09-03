@@ -67,6 +67,72 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 	return Result;
 }
 
+FInventoryAddResult UInventoryModel::TryAddItem(const FPrimaryAssetId& ItemDefinitionId, int32 Quantity)
+{
+	FInventoryAddResult Result;
+	Result.RemainingQuantity = FMath::Max(Quantity, 0);
+	const FBackpackItemDefEntry* Definition = FindItemDefinition(ItemDefinitionId);
+	if (!Definition || Result.RemainingQuantity == 0)
+	{
+		return Result;
+	}
+
+	const int32 StackLimit = Definition->bStackable ? FMath::Max(1, Definition->MaxStack) : 1;
+	for (FInventorySlot& Slot : Slots)
+	{
+		if (Slot.ItemDefinitionId != ItemDefinitionId || Slot.Quantity >= StackLimit)
+		{
+			continue;
+		}
+
+		const int32 Accepted = FMath::Min(StackLimit - Slot.Quantity, Result.RemainingQuantity);
+		Slot.Quantity += Accepted;
+		Result.AcceptedQuantity += Accepted;
+		Result.RemainingQuantity -= Accepted;
+		if (Result.RemainingQuantity == 0)
+		{
+			Result.bSucceeded = true;
+			OnInventoryUpdated.Broadcast(Slots);
+			return Result;
+		}
+	}
+
+	for (FInventorySlot& Slot : Slots)
+	{
+		if (!Slot.IsEmpty())
+		{
+			continue;
+		}
+
+		const int32 Accepted = FMath::Min(StackLimit, Result.RemainingQuantity);
+		Slot.ItemDefinitionId = ItemDefinitionId;
+		Slot.Quantity = Accepted;
+		Result.AcceptedQuantity += Accepted;
+		Result.RemainingQuantity -= Accepted;
+		if (Result.RemainingQuantity == 0)
+		{
+			break;
+		}
+	}
+
+	Result.bSucceeded = Result.AcceptedQuantity > 0;
+	if (Result.bSucceeded)
+	{
+		OnInventoryUpdated.Broadcast(Slots);
+	}
+	return Result;
+}
+
+void UInventoryModel::SetItemDefinitions(UBackpackItemDefinitions* InItemDefinitions)
+{
+	ItemDefinitionCatalog = InItemDefinitions;
+}
+
+const FBackpackItemDefEntry* UInventoryModel::FindItemDefinition(const FPrimaryAssetId& ItemDefinitionId) const
+{
+	return IsValid(ItemDefinitionCatalog) ? ItemDefinitionCatalog->FindDefinition(ItemDefinitionId) : nullptr;
+}
+
 bool UInventoryModel::UseItemAt(int32 SlotIndex)
 {
 	if (!Slots.IsValidIndex(SlotIndex) || Slots[SlotIndex].IsEmpty())
@@ -74,8 +140,9 @@ bool UInventoryModel::UseItemAt(int32 SlotIndex)
 		return false;
 	}
 
-	UItemDefinition* Definition = ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
-	if (!IsValid(Definition) || !Definition->bUsable)
+	const FBackpackItemDefEntry* CatalogDefinition = FindItemDefinition(Slots[SlotIndex].ItemDefinitionId);
+	UItemDefinition* LegacyDefinition = ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
+	if ((CatalogDefinition && !CatalogDefinition->bUsable) || (!CatalogDefinition && (!IsValid(LegacyDefinition) || !LegacyDefinition->bUsable)))
 	{
 		return false;
 	}

@@ -4,7 +4,7 @@
 #include "Backpack/BackpackComponent.h"
 #include "Backpack/InventoryModel.h"
 #include "Backpack/ItemDefinition.h"
-#include "Backpack/WorldPickup.h"
+#include "Backpack/WorldPickupComponent.h"
 #include "Player/MyPlayerController.h"
 #include "Player/MyPlayerState.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
@@ -31,6 +31,7 @@ void UBackpackComponent::Initialize()
         return;
     }
     InventoryModel = NewObject<UInventoryModel>(this);
+	InventoryModel->SetItemDefinitions(ItemDefinitions);
     if (HasServerAuthority())
     {
         InitializeReplicatedSlots();
@@ -58,23 +59,39 @@ FInventoryAddResult UBackpackComponent::TryAddItem(const UItemDefinition* Defini
 	return Result;
 }
 
-FInventoryAddResult UBackpackComponent::TryPickup(AWorldPickup* Pickup)
+FInventoryAddResult UBackpackComponent::TryAddItem(const FPrimaryAssetId& ItemDefinitionId, int32 Quantity)
 {
 	FInventoryAddResult Result;
-	if (!HasServerAuthority() || !IsValid(Pickup) || !Pickup->HasAuthority() || !IsValid(Pickup->GetItemDefinition()) || Pickup->GetQuantity() <= 0)
+	if (!HasServerAuthority() || !ItemDefinitionId.IsValid() || Quantity <= 0)
 	{
 		return Result;
 	}
 
-	Result = TryAddItem(Pickup->GetItemDefinition(), Pickup->GetQuantity());
-	if (Result.AcceptedQuantity > 0 && !Pickup->ConsumeQuantity(Result.AcceptedQuantity))
+	Initialize();
+	Result = InventoryModel->TryAddItem(ItemDefinitionId, Quantity);
+	if (Result.bSucceeded)
 	{
-		return FInventoryAddResult();
+		SynchronizeReplicatedSlotsFromModel();
+		OnBackpackStateChanged.Broadcast();
 	}
 	return Result;
 }
 
-bool UBackpackComponent::SwapSlots(int32 IndexA, int32 IndexB)
+void UBackpackComponent::SetItemDefinitions(UBackpackItemDefinitions* InItemDefinitions)
+{
+	ItemDefinitions = InItemDefinitions;
+	if (IsValid(InventoryModel))
+	{
+		InventoryModel->SetItemDefinitions(ItemDefinitions);
+	}
+}
+
+void UBackpackComponent::ConfigureSpawnedPickupActor(AActor* PickupActor)
+{
+	UWorldPickupComponent::ConfigureOwnerForNetworkedPickup(PickupActor);
+}
+
+bool UBackpackComponent::DropWholeStack(int32 SlotIndex, const FVector& SpawnLocation)
 {
 	if (!HasServerAuthority())
 	{
@@ -82,13 +99,54 @@ bool UBackpackComponent::SwapSlots(int32 IndexA, int32 IndexB)
 	}
 
 	Initialize();
+	const TArray<FInventorySlot>& Slots = InventoryModel->GetSlots();
+	if (!Slots.IsValidIndex(SlotIndex) || Slots[SlotIndex].IsEmpty())
+	{
+		return false;
+	}
+
+	const FInventorySlot StackToDrop = Slots[SlotIndex];
+	const FBackpackItemDefEntry* Definition = InventoryModel->FindItemDefinition(StackToDrop.ItemDefinitionId);
+	if (!Definition || !Definition->PickupActorClass)
+	{
+		return false;
+	}
+
+	AActor* DroppedActor = GetWorld()->SpawnActor<AActor>(Definition->PickupActorClass, SpawnLocation, FRotator::ZeroRotator);
+	ConfigureSpawnedPickupActor(DroppedActor);
+	UWorldPickupComponent* DroppedPickup = IsValid(DroppedActor) ? DroppedActor->FindComponentByClass<UWorldPickupComponent>() : nullptr;
+	if (!IsValid(DroppedPickup))
+	{
+		if (IsValid(DroppedActor)) DroppedActor->Destroy();
+		return false;
+	}
+	DroppedPickup->ItemDefinitions = ItemDefinitions;
+	DroppedPickup->ConfigurePickup(StackToDrop.ItemDefinitionId, StackToDrop.Quantity, true);
+	InventoryModel->Slots[SlotIndex].Clear();
+	InventoryModel->OnInventoryUpdated.Broadcast(InventoryModel->Slots);
+	SynchronizeReplicatedSlotsFromModel();
+	OnBackpackStateChanged.Broadcast();
+	return true;
+}
+
+bool UBackpackComponent::SwapSlots(int32 IndexA, int32 IndexB)
+{
+	if (!HasServerAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Server rejected swap %d -> %d: component has no authority."), IndexA, IndexB);
+		return false;
+	}
+
+	Initialize();
 	if (!InventoryModel->SwapSlots(IndexA, IndexB))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Server rejected swap %d -> %d: model rejected the indices."), IndexA, IndexB);
 		return false;
 	}
 
 	SynchronizeReplicatedSlotsFromModel();
 	OnBackpackStateChanged.Broadcast();
+	UE_LOG(LogTemp, Log, TEXT("[BackpackDrag] Server completed swap: %d <-> %d."), IndexA, IndexB);
 	return true;
 }
 
@@ -106,8 +164,11 @@ bool UBackpackComponent::TryUseItemForPawn(int32 SlotIndex, APawn* Pawn)
 		return false;
 	}
 
-	UItemDefinition* Definition = InventoryModel->ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
-	if (!IsValid(Definition) || !Definition->bUsable || !Definition->UseEffect)
+	const FBackpackItemDefEntry* CatalogDefinition = InventoryModel->FindItemDefinition(Slots[SlotIndex].ItemDefinitionId);
+	UItemDefinition* LegacyDefinition = InventoryModel->ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
+	const bool bUsesCatalogDefinition = CatalogDefinition != nullptr;
+	const bool bCanUse = bUsesCatalogDefinition ? CatalogDefinition->bUsable && CatalogDefinition->UseEffect : IsValid(LegacyDefinition) && LegacyDefinition->bUsable && LegacyDefinition->UseEffect;
+	if (!bCanUse)
 	{
 		return false;
 	}
@@ -119,8 +180,9 @@ bool UBackpackComponent::TryUseItemForPawn(int32 SlotIndex, APawn* Pawn)
 	}
 
 	FGameplayEffectContextHandle EffectContext = TargetAbilitySystem->MakeEffectContext();
-	EffectContext.AddSourceObject(Definition);
-	const FGameplayEffectSpecHandle EffectSpec = TargetAbilitySystem->MakeOutgoingSpec(Definition->UseEffect, 1.f, EffectContext);
+	EffectContext.AddSourceObject(bUsesCatalogDefinition ? static_cast<UObject*>(ItemDefinitions) : static_cast<UObject*>(LegacyDefinition));
+	const TSubclassOf<UGameplayEffect> UseEffect = bUsesCatalogDefinition ? CatalogDefinition->UseEffect : LegacyDefinition->UseEffect;
+	const FGameplayEffectSpecHandle EffectSpec = TargetAbilitySystem->MakeOutgoingSpec(UseEffect, 1.f, EffectContext);
 	if (!EffectSpec.IsValid())
 	{
 		return false;

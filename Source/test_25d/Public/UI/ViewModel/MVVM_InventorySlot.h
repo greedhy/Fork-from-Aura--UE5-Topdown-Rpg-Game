@@ -3,7 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Components/SlateWrapperTypes.h"
 #include "MVVMViewModelBase.h"
+#include "Styling/SlateBrush.h"
 #include "MVVM_InventorySlot.generated.h"
 
 /**
@@ -26,6 +28,18 @@ public:
 
     UFUNCTION(BlueprintPure,FieldNotify)
     TSoftObjectPtr<UTexture2D> GetIcon() const { return Icon; }
+
+    UFUNCTION(BlueprintPure, FieldNotify)
+    FSlateBrush GetIconBrush() const;
+
+    UFUNCTION(BlueprintPure, FieldNotify)
+    ESlateVisibility GetIconVisibility() const { return bEmpty ? ESlateVisibility::Hidden : ESlateVisibility::Visible; }
+
+    UFUNCTION(BlueprintPure, FieldNotify)
+    ESlateVisibility GetStackCountVisibility() const { return HasStack() ? ESlateVisibility::Visible : ESlateVisibility::Collapsed; }
+
+    UFUNCTION(BlueprintPure, FieldNotify)
+    FLinearColor GetSlotBackgroundTint() const;
 
     // 新增：缓存加载后的图标，解决软引用绑定延迟问题
     UFUNCTION(BlueprintPure, FieldNotify)
@@ -68,6 +82,8 @@ public:
     // 槽位索引（由背包VM赋值，UI拖拽时传递参数）
     UFUNCTION(BlueprintPure)
     int32 GetSlotIndex() const { return SlotIndex; }
+
+    class UMVVM_Backpack* GetBackpackViewModel() const;
 
 
 

@@ -52,17 +52,20 @@ void UMVVM_Backpack::RebuildFromModel()
 			VM = NewObject<UMVVM_InventorySlot>(this);
 			SlotVMsTyped[i] = VM;
 		}
-		VM->SetSlotIndex(i);
+        VM->SetSlotIndex(i);
         if (!Slots[i].IsEmpty())
         {
+            const FBackpackItemDefEntry* Definition = Model->FindItemDefinition(Slots[i].ItemDefinitionId);
             VM->SetEmpty(false);
-			VM->SetIcon(nullptr);
+            VM->SetIcon(Definition ? Definition->Icon : nullptr);
+            VM->SetLoadedIcon(Definition ? Definition->Icon : nullptr);
             VM->SetStackCount(Slots[i].Quantity);
         }
         else
         {
             VM->SetEmpty(true);
             VM->SetIcon(nullptr);
+            VM->SetLoadedIcon(nullptr);
             VM->SetStackCount(0);
         }
         SlotVMs.Add(VM);
@@ -86,12 +89,19 @@ void UMVVM_Backpack::RequestSwap(int32 From, int32 To)
 	{
 		if (AMyPlayerController* Controller = OwningPlayerController.Get(); IsValid(Controller) && Controller->IsLocalController())
 		{
+			UE_LOG(LogTemp, Log, TEXT("[BackpackDrag] Client requests swap: %d -> %d."), From, To);
 			Controller->ServerRequestSwap(From, To);
+			return;
 		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Client cannot send swap %d -> %d: no local owning controller."), From, To);
+		return;
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[BackpackDrag] Client rejected invalid swap request: %d -> %d."), From, To);
 }
 
-// ==================== ÍÏ×§Âß¼­ ====================
+// ==================== æ‹–æ‹½é€»è¾‘ ====================
 bool UMVVM_Backpack::RequestBeginDrag(int32 SourceSlotIndex)
 {
     if (!IsValid(Model) || !Model->GetSlots().IsValidIndex(SourceSlotIndex) || Model->GetSlots()[SourceSlotIndex].IsEmpty())
@@ -100,7 +110,7 @@ bool UMVVM_Backpack::RequestBeginDrag(int32 SourceSlotIndex)
     DragSourceIndex = SourceSlotIndex;
     bIsDragging = true;
 
-    // ±ê¼ÇÔ´²ÛÎ»ÎªÍÏ×§×´Ì¬£¬UI×Ô¶¯¸üÐÂÑùÊ½
+    // æ ‡è®°æºæ§½ä½ä¸ºæ‹–æ‹½çŠ¶æ€ï¼ŒUIè‡ªåŠ¨æ›´æ–°æ ·å¼
     if (SlotVMsTyped.IsValidIndex(SourceSlotIndex))
     {
 		SlotVMsTyped[SourceSlotIndex]->SetDragSource(true);
@@ -119,13 +129,19 @@ bool UMVVM_Backpack::RequestDropOnSlot(int32 TargetSlotIndex)
     }
 
     const bool bSuccess = Model->GetSlots().IsValidIndex(TargetSlotIndex) && TargetSlotIndex != DragSourceIndex;
-    if (bSuccess)
-    {
+	if (bSuccess)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[BackpackDrag] Client accepted drop: %d -> %d."), DragSourceIndex, TargetSlotIndex);
 		RequestSwap(DragSourceIndex, TargetSlotIndex);
     }
 
     ClearDragState();
     return bSuccess;
+}
+
+bool UMVVM_Backpack::RequestDropOnHoveredSlot()
+{
+	return RequestDropOnSlot(CurrentHoverIndex);
 }
 
 void UMVVM_Backpack::RequestCancelDrag()
@@ -138,12 +154,12 @@ void UMVVM_Backpack::RequestHoverSlot(int32 HoverSlotIndex)
     if (!bIsDragging || CurrentHoverIndex == HoverSlotIndex)
         return;
 
-    // Çå³ýÉÏÒ»¸öÐüÍ£²ÛÎ»µÄ×´Ì¬
+    // æ¸…é™¤ä¸Šä¸€ä¸ªæ‚¬åœæ§½ä½çš„çŠ¶æ€
     if (SlotVMsTyped.IsValidIndex(CurrentHoverIndex))
     {
 		SlotVMsTyped[CurrentHoverIndex]->SetDragHovered(false);
     }
-    // ÉèÖÃÐÂµÄÐüÍ£²ÛÎ»×´Ì¬
+    // è®¾ç½®æ–°çš„æ‚¬åœæ§½ä½çŠ¶æ€
     if (SlotVMsTyped.IsValidIndex(HoverSlotIndex))
     {
 		SlotVMsTyped[HoverSlotIndex]->SetDragHovered(true);
@@ -153,7 +169,7 @@ void UMVVM_Backpack::RequestHoverSlot(int32 HoverSlotIndex)
 
 void UMVVM_Backpack::ClearDragState()
 {
-    // ÖØÖÃËùÓÐ²ÛÎ»µÄÍÏ×§×´Ì¬
+    // é‡ç½®æ‰€æœ‰æ§½ä½çš„æ‹–æ‹½çŠ¶æ€
     if (SlotVMsTyped.IsValidIndex(DragSourceIndex))
     {
 		SlotVMsTyped[DragSourceIndex]->SetDragSource(false);
@@ -174,7 +190,7 @@ void UMVVM_Backpack::OnMaxSlotsChanged(int32 NewMaxSlots)
     {
         MaxSlotsCache = NewMaxSlots;
         UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetMaxSlots);
-        RebuildFromModel();  // ¸ñÊý±ä»¯£¬ÖØ½¨SlotVMÊý×é
+        RebuildFromModel();  // æ ¼æ•°å˜åŒ–ï¼Œé‡å»ºSlotVMæ•°ç»„
     }
 }
 
@@ -182,14 +198,14 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
 {
     if (!IsValid(Model)) return;
 
-    // 1. È¡ÏûÖ®Ç°Ñ¡ÖÐµÄ²ÛÎ»
+    // 1. å–æ¶ˆä¹‹å‰é€‰ä¸­çš„æ§½ä½
     if (CurrentSelectedIndex != INDEX_NONE && SlotVMsTyped.IsValidIndex(CurrentSelectedIndex))
     {
         SlotVMsTyped[CurrentSelectedIndex]->SetSelected(false);
         SlotVMsTyped[CurrentSelectedIndex]->SetCanBeUsed(false);
     }
 
-    // 2. Ñ¡ÖÐÐÂ²ÛÎ»£¨µã»÷¿Õ°×/ÎÞÐ§Ë÷ÒýÔòÈ¡ÏûÑ¡ÖÐ£©
+    // 2. é€‰ä¸­æ–°æ§½ä½ï¼ˆç‚¹å‡»ç©ºç™½/æ— æ•ˆç´¢å¼•åˆ™å–æ¶ˆé€‰ä¸­ï¼‰
     if (Model->GetSlots().IsValidIndex(SlotIndex) && !Model->GetSlots()[SlotIndex].IsEmpty())
     {
         CurrentSelectedIndex = SlotIndex;
@@ -204,6 +220,9 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCurrentSelectedIndex);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(HasSelectedItem);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemName);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedStackText);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanUseSelectedItem);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanDropSelectedItem);
 }
 
 bool UMVVM_Backpack::RequestUseSelectedItem()
@@ -221,7 +240,7 @@ bool UMVVM_Backpack::RequestDeleteSelectedItem(int32 Count)
 {
     if (!HasSelectedItem()) return false;
 	OnDeleteRequested.Broadcast(CurrentSelectedIndex, Count);
-    ResetSelection(); // É¾³ýºóÈ¡ÏûÑ¡ÖÐ
+    ResetSelection(); // åˆ é™¤åŽå–æ¶ˆé€‰ä¸­
     return true;
 }
 
@@ -239,5 +258,10 @@ void UMVVM_Backpack::ResetSelection()
         SlotVMsTyped[CurrentSelectedIndex]->SetCanBeUsed(false);
     }
     CurrentSelectedIndex = INDEX_NONE;
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCurrentSelectedIndex);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(HasSelectedItem);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemName);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedStackText);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanUseSelectedItem);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanDropSelectedItem);
 }

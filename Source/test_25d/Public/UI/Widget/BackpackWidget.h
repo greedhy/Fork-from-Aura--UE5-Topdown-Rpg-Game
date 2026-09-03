@@ -11,6 +11,8 @@
 #include "Components/UniformGridPanel.h"
 #include "BackpackWidget.generated.h"
 
+class UMVVM_Backpack;
+
 /**
  * 
  */
@@ -22,6 +24,11 @@ class TEST_25D_API UBackpackWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintCallable, Category = "Backpack")
+	void SetBackpackViewModel(UMVVM_Backpack* InBackpackViewModel);
+
+	UPROPERTY(BlueprintReadOnly, FieldNotify, Category = "Backpack")
+	TObjectPtr<UMVVM_Backpack> BackpackViewModel;
 
 
     ////BackPackUI.h

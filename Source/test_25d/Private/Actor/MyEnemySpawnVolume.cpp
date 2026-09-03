@@ -34,7 +34,7 @@ void AMyEnemySpawnVolume::BeginPlay()
 void AMyEnemySpawnVolume::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (!OtherActor->Implements<UPlayerInterface>()) return;
+	if (!ShouldSpawnForOverlap(HasAuthority(), IsValid(OtherActor) && OtherActor->Implements<UPlayerInterface>())) return;
 
 	bReached = true;
 	for (AMyEnemySpawnPoint* Point : SpawnPoints)

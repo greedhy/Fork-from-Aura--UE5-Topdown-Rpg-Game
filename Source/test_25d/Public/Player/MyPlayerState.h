@@ -14,6 +14,7 @@ class ULevelUpInfo;
 class UAbilitySystemComponent;
 class UAttributeSet;
 class UBackpackComponent;
+class UBackpackItemDefinitions;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlayerStatChanged, int32 /*StatValue*/)
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnLevelChanged, int32 /*StatValue*/, bool /*bLevelUp*/)
@@ -39,6 +40,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly)
 	TObjectPtr<ULevelUpInfo> LevelUpInfo;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Backpack")
+	TObjectPtr<UBackpackItemDefinitions> BackpackItemDefinitions;
 
 	FOnPlayerStatChanged OnXPChangedDelegate;
 	FOnLevelChanged OnLevelChangedDelegate;

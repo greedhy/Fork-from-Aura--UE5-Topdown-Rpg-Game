@@ -17,6 +17,7 @@ class UInputAction;
 class UMyAbilitySystemComponent;
 struct FInputActionValue;
 class AMagicCircle;
+class UUserWidget;
 
 /**
  * 
@@ -41,13 +42,33 @@ public:
 	void ShowDamageNumber(float DamageAccount,ACharacter* TargetCharacter, bool bBlockHit, bool bCriticalHit);
 
 	UFUNCTION(Server, Reliable)
-	void ServerRequestPickup(AActor* PickupActor);
+	void ServerRequestPickup();
+
+	// Called by authoritative WorldPickupComponent overlap callbacks. These are
+	// deliberately actor-based so one pickup with several primitive components
+	// remains a single candidate.
+	void RegisterOverlappingInteractPickup(AActor* PickupActor);
+	void UnregisterOverlappingInteractPickup(AActor* PickupActor);
+	AActor* GetRandomOverlappingInteractPickup();
+	int32 GetOverlappingInteractPickupCount() const;
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestSwap(int32 SourceSlotIndex, int32 TargetSlotIndex);
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestUse(int32 SlotIndex);
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestDropWholeStack(int32 SlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "Backpack|UI")
+	void ToggleBackpackUI();
+	UFUNCTION(BlueprintCallable, Category = "Backpack|UI")
+	void OpenBackpackUI();
+	UFUNCTION(BlueprintCallable, Category = "Backpack|UI")
+	void CloseBackpackUI();
+	UFUNCTION(BlueprintPure, Category = "Backpack|UI")
+	bool IsBackpackUIOpen() const { return bBackpackUIOpen; }
 
 	UFUNCTION(BlueprintCallable)
 	void ShowMagicCircle(UMaterialInterface* DecalMaterial = nullptr);
@@ -70,6 +91,14 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputAction> ShiftAction;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Backpack|UI")
+	TSubclassOf<UUserWidget> BackpackWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> BackpackWidget;
+
+	bool bBackpackUIOpen = false;
+
 	void Move(const FInputActionValue& InputActionValue);
 	void CursorTrace();
 	void ShiftPressed() { bShiftKeyDown = true; };
@@ -84,6 +113,7 @@ private:
 	void AbilityInputTagPressed(FGameplayTag InputTag);
 	void AbilityInputTagReleased(FGameplayTag InputTag);
 	void AbilityInputTagHeld(FGameplayTag InputTag);
+	void RequestPickupFocusedActor();
 
 
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
@@ -105,6 +135,7 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Backpack", meta = (ClampMin = "0"))
 	float PickupRequestRange = 250.f;
+	TMap<TWeakObjectPtr<AActor>, int32> OverlappingInteractPickups;
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USplineComponent> Spline;
 

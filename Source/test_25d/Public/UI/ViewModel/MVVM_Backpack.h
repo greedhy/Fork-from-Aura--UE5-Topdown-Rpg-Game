@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "MVVMViewModelBase.h"
 #include "Backpack/InventoryModel.h"
+#include "Backpack/ItemDefinition.h"
 #include "MVVM_Backpack.generated.h"
 
 class UMVVM_InventorySlot;
@@ -29,7 +30,7 @@ public:
 
     // 供 TileView/ListView 绑定——必须返回 TArray<UObject*>，并手动广播
     UFUNCTION(BlueprintPure, FieldNotify)
-    TArray<UObject*> GetSlotViewModels() const { return SlotVMs; }
+    TArray<UMVVM_InventorySlot*> GetSlotViewModels() const { return SlotVMsTyped; }
 
     UFUNCTION(BlueprintCallable)
     void RequestDrop(int32 SlotIndex);
@@ -38,11 +39,14 @@ public:
     void RequestSwap(int32 From, int32 To);
 
     UFUNCTION(BlueprintPure)
-    int32 GetSlotCount() const { return SlotVMs.Num(); }
+    int32 GetSlotCount() const { return SlotVMsTyped.Num(); }
 
     // 动态格数：返回当前最大格数
     UFUNCTION(BlueprintPure, FieldNotify)
     int32 GetMaxSlots() const { return MaxSlotsCache; }
+
+    UFUNCTION(BlueprintPure, FieldNotify)
+    FText GetMaxSlotsText() const { return FText::AsNumber(MaxSlotsCache); }
 
     // === 拖拽接口（UI调用）===
     UFUNCTION(BlueprintCallable, Category = "Inventory|Drag")
@@ -50,6 +54,10 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Inventory|Drag")
     bool RequestDropOnSlot(int32 TargetSlotIndex); // 放置到目标槽位
+
+    // TileView 条目未接管 Drop 时，UE 会把本次操作回调为源条目的 DragCancelled。
+    // 此接口只会提交最后一个有效悬停目标；拖到背包外时会返回 false。
+    bool RequestDropOnHoveredSlot();
 
     UFUNCTION(BlueprintCallable, Category = "Inventory|Drag")
     void RequestCancelDrag();                      // 取消拖拽（拖出背包）
@@ -61,15 +69,6 @@ public:
     bool IsDragging() const { return bIsDragging; } // 是否正在拖拽
 
   
-    UFUNCTION(BlueprintPure, FieldNotify)
-    FText GetMaxSlotsText() const {
-        return FText::Format(
-            FText::FromString("容量：{0}"),
-            FText::AsNumber(MaxSlotsCache)
-        );
-    };
-
-
     // 选中相关
     UFUNCTION(BlueprintCallable, Category = "Inventory|Selection")
     void SelectSlot(int32 SlotIndex); // 选中指定槽位
@@ -91,6 +90,21 @@ public:
     UFUNCTION(BlueprintPure, FieldNotify)
     FText GetSelectedItemName() const;
 
+    UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
+    FText GetSelectedStackText() const { return HasSelectedItem() ? FText::AsNumber(Model->GetSlots()[CurrentSelectedIndex].Quantity) : FText::GetEmpty(); }
+
+    UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
+    bool GetCanUseSelectedItem() const { const FBackpackItemDefEntry* Definition = HasSelectedItem() ? Model->FindItemDefinition(Model->GetSlots()[CurrentSelectedIndex].ItemDefinitionId) : nullptr; return Definition && Definition->bUsable; }
+
+    UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
+    bool GetCanDropSelectedItem() const { const FBackpackItemDefEntry* Definition = HasSelectedItem() ? Model->FindItemDefinition(Model->GetSlots()[CurrentSelectedIndex].ItemDefinitionId) : nullptr; return Definition && Definition->PickupActorClass; }
+
+    UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
+    FText GetUseButtonText() const { return FText::FromString(TEXT("Use")); }
+
+    UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
+    FText GetDropButtonText() const { return FText::FromString(TEXT("Drop")); }
+
     // 当前选中索引（-1=未选中）
     UPROPERTY(BlueprintReadOnly, FieldNotify, meta = (AllowPrivateAccess = true))
     int32 CurrentSelectedIndex = INDEX_NONE;
@@ -108,11 +122,11 @@ private:
 
     TWeakObjectPtr<AMyPlayerController> OwningPlayerController;
 
-    UPROPERTY(BlueprintReadOnly, FieldNotify, meta = (AllowPrivateAccess = true))
+    UPROPERTY()
     TArray<UObject*> SlotVMs;
 
     UPROPERTY()
-    TArray<TObjectPtr<UMVVM_InventorySlot>> SlotVMsTyped;
+    TArray<UMVVM_InventorySlot*> SlotVMsTyped;
 
     UFUNCTION()
     void RebuildFromModel();

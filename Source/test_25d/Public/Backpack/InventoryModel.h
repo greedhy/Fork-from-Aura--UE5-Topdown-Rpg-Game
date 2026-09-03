@@ -8,6 +8,8 @@
 #include "InventoryModel.generated.h"
 
 class UItemDefinition;
+class UBackpackItemDefinitions;
+struct FBackpackItemDefEntry;
 
 /**
  * 
@@ -89,6 +91,9 @@ public:
     const TArray<FInventorySlot>& GetSlots() const { return Slots; }
 
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
+	FInventoryAddResult TryAddItem(const FPrimaryAssetId& ItemDefinitionId, int32 Quantity);
+	void SetItemDefinitions(UBackpackItemDefinitions* InItemDefinitions);
+	const FBackpackItemDefEntry* FindItemDefinition(const FPrimaryAssetId& ItemDefinitionId) const;
 	bool UseItemAt(int32 SlotIndex);
 	bool SwapSlots(int32 IndexA, int32 IndexB);
 	void ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots);
@@ -123,6 +128,9 @@ private:
 
 	UPROPERTY()
 	TMap<FPrimaryAssetId, TObjectPtr<UItemDefinition>> ItemDefinitions;
+
+	UPROPERTY()
+	TObjectPtr<UBackpackItemDefinitions> ItemDefinitionCatalog;
 
     int32 MaxSlots = 16;
 	

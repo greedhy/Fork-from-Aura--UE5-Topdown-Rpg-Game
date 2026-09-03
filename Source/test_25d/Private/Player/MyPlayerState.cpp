@@ -25,6 +25,7 @@ AMyPlayerState::AMyPlayerState()
 void AMyPlayerState::BeginPlay()
 {
 	Super::BeginPlay();
+	BackpackComponent->SetItemDefinitions(BackpackItemDefinitions);
 
 	if (HasAuthority())
 	{

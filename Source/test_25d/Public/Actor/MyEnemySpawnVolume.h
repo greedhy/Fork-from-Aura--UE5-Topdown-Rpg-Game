@@ -16,6 +16,10 @@ class TEST_25D_API AMyEnemySpawnVolume : public AActor, public ISaveInterface
 	
 public:
 	AMyEnemySpawnVolume();
+	static bool ShouldSpawnForOverlap(bool bHasAuthority, bool bIsPlayer)
+	{
+		return bHasAuthority && bIsPlayer;
+	}
 
 	/* Save Interface */
 	virtual void LoadActor_Implementation() override;
