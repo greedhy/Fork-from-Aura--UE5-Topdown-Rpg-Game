@@ -32,6 +32,10 @@ public:
 	//
 	virtual void InitAbilityActorInfo() override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mass Monsters")
+	FName MonsterRoomId;
 	virtual void Die(const FVector& DeathImpulse) override;
 	virtual void PossessedBy(AController* NewController) override;
 

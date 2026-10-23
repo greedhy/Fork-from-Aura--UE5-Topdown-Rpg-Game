@@ -1,0 +1,37 @@
+[
+  {
+    "name": "DungeonFloor",
+    "asset": "/Game/Assets/Dungeon/Materials/Tileset1x1/Tileset1x1_1/Tileset1x1_low_DefaultMaterial_BaseColor",
+    "export": "C:\\Users\\greedy\\Documents\\Unreal Projects\\test_25d\\SourceArt\\TerrainSurfaces\\References\\DungeonFloor.png",
+    "width": 4096,
+    "height": 4096
+  },
+  {
+    "name": "DungeonFloorVariant",
+    "asset": "/Game/Assets/Dungeon/Materials/Tileset1x1/Tilese1x1_2/Tileset1x1_low_DefaultMaterial_BaseColor",
+    "export": "C:\\Users\\greedy\\Documents\\Unreal Projects\\test_25d\\SourceArt\\TerrainSurfaces\\References\\DungeonFloorVariant.png",
+    "width": 4096,
+    "height": 4096
+  },
+  {
+    "name": "DungeonStone",
+    "asset": "/Game/Assets/Dungeon/Materials/Tileset1/Tileset1_low_DefaultMaterial_BaseColor",
+    "export": "C:\\Users\\greedy\\Documents\\Unreal Projects\\test_25d\\SourceArt\\TerrainSurfaces\\References\\DungeonStone.png",
+    "width": 4096,
+    "height": 4096
+  },
+  {
+    "name": "FireCellNoise",
+    "asset": "/Game/Assets/Effects/Projectiles/FireBolt/Materials/Textures/Noise_cell_1",
+    "export": "C:\\Users\\greedy\\Documents\\Unreal Projects\\test_25d\\SourceArt\\TerrainSurfaces\\References\\FireCellNoise.png",
+    "width": 32,
+    "height": 32
+  },
+  {
+    "name": "SoftNoise",
+    "asset": "/Game/Assets/Effects/Projectiles/FireBolt/Materials/Textures/Noise_blur_1",
+    "export": "C:\\Users\\greedy\\Documents\\Unreal Projects\\test_25d\\SourceArt\\TerrainSurfaces\\References\\SoftNoise.png",
+    "width": 172,
+    "height": 172
+  }
+]

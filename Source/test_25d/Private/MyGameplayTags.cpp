@@ -103,6 +103,7 @@ void FMyGameplayTags::InitializeNativeGameplayTags()
 	GameplayTags.Abilities_Passive_HaloOfProtection = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Passive.HaloOfProtection"));
 	GameplayTags.Abilities_Passive_LifeSiphon = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Passive.LifeSiphon"));
 	GameplayTags.Abilities_Passive_ManaSiphon = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Passive.ManaSiphon"));
+	GameplayTags.Abilities_Passive_OrbitingFireBolt = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Passive.OrbitingFireBolt"));
 
 	GameplayTags.Abilities_Passive_ListenForEvent = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Passive.ListenForEvent"));
 
@@ -114,6 +115,7 @@ void FMyGameplayTags::InitializeNativeGameplayTags()
 	GameplayTags.Abilities_Fire_FireBlast = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Fire.FireBlast"));
 	GameplayTags.Abilities_Thunder_Electrocute = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Thunder.Electrocute"));
 	GameplayTags.Abilities_Arcane_ArcaneShards = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Arcane.ArcaneShards"));
+	GameplayTags.Abilities_Arcane_ArcaneNova = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Abilities.Arcane.ArcaneNova"));
 
 	
 
@@ -123,6 +125,7 @@ void FMyGameplayTags::InitializeNativeGameplayTags()
 	GameplayTags.Cooldown_Fire_FireBolt = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Cooldown.Fire.FireBolt"));
 	GameplayTags.Cooldown_Thunder_Electrocute = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Cooldown.Thunder.Electrocute"));
 	GameplayTags.Cooldown_Arcane_ArcaneShards = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Cooldown.Arcane.ArcaneShards"));
+	GameplayTags.Cooldown_Arcane_ArcaneNova = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("Cooldown.Arcane.ArcaneNova"));
 
 	
 
@@ -165,6 +168,7 @@ void FMyGameplayTags::InitializeNativeGameplayTags()
 
 
 	GameplayTags.GameplayCue_FireBlast = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("GameplayCue.FireBlast"));
+	GameplayTags.GameplayCue_ArcaneNova = UGameplayTagsManager::Get().AddNativeGameplayTag(FName("GameplayCue.ArcaneNova"));
 
 
 	

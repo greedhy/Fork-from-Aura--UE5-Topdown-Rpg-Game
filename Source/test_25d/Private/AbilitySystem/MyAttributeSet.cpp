@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Player/MyPlayerController.h"
 #include "test_25d/MyLogChannels.h"
+#include "Terrain/TerrainStatusComponent.h"
 
 UMyAttributeSet::UMyAttributeSet()
 {
@@ -312,12 +313,12 @@ void UMyAttributeSet::ShowFloatingText(const FEffectProperties& Props, float Dam
 {
 	if (Props.SourceCharacter != Props.TargetCharacter) {
 		
-		if (AMyPlayerController* PC = Cast<AMyPlayerController>(Props.SourceCharacter->Controller))
+		if (AMyPlayerController* PC = Props.SourceCharacter ? Cast<AMyPlayerController>(Props.SourceCharacter->Controller) : nullptr)
 		{
 			PC->ShowDamageNumber(Damage, Props.TargetCharacter, bBlockHit, bCriticalHit);
 			return;
 		}
-		if (AMyPlayerController* PC = Cast<AMyPlayerController>(Props.TargetCharacter->Controller))
+		if (AMyPlayerController* PC = Props.TargetCharacter ? Cast<AMyPlayerController>(Props.TargetCharacter->Controller) : nullptr)
 		{
 			PC->ShowDamageNumber(Damage, Props.TargetCharacter, bBlockHit, bCriticalHit);
 		}
@@ -349,7 +350,8 @@ void UMyAttributeSet::HandleIncomingDamage(const FEffectProperties& Props)
 		}
 		else
 		{
-			if (Props.TargetCharacter->Implements<UCombatInterface>() && !ICombatInterface::Execute_IsBeingShocked(Props.TargetCharacter))
+			if (!Cast<UTerrainStatusComponent>(Props.EffectContextHandle.GetSourceObject())
+				&& Props.TargetCharacter->Implements<UCombatInterface>() && !ICombatInterface::Execute_IsBeingShocked(Props.TargetCharacter))
 			{
 				FGameplayTagContainer TagContainer;
 				TagContainer.AddTag(FMyGameplayTags::Get().Effects_HitReact);
@@ -475,6 +477,8 @@ void UMyAttributeSet::Debuff(const FEffectProperties& Props)
 }
 void UMyAttributeSet::SendXPEvent(const FEffectProperties& Props)
 {
+	// Environmental damage has no credited player; never award self-kill XP.
+	if (!IsValid(Props.SourceCharacter) || Props.SourceCharacter == Props.TargetCharacter || !IsValid(Props.TargetCharacter)) return;
 	if (Props.TargetCharacter->Implements<UCombatInterface>())
 	{
 	

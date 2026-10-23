@@ -26,6 +26,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enemy Class")
 	int32 EnemyLevel = 1;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mass Monsters")
+	FName MonsterRoomId;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Enemy Class")
 	ECharacterClass CharacterClass = ECharacterClass::Warrior;
 };

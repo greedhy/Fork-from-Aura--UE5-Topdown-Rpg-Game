@@ -13,6 +13,7 @@ void UMyBeamSpell::StoreMouseDataInfo(const FHitResult& HitResult)
 	{
 		MouseHitLocation = HitResult.ImpactPoint;
 		MouseHitActor = HitResult.GetActor();
+		SetOffensiveAttackTarget(MouseHitActor);
 	}
 	else
 	{
@@ -63,6 +64,7 @@ void UMyBeamSpell::TraceFirstTarget(const FVector& BeamTargetLocation)
 	}
 	if (ICombatInterface* CombatInterface = Cast<ICombatInterface>(MouseHitActor))
 	{
+		ReportOffensiveAttack(MouseHitActor);
 		if (!CombatInterface->GetOnDeathDelegate().IsAlreadyBound(this, &UMyBeamSpell::PrimaryTargetDied))
 		{
 			CombatInterface->GetOnDeathDelegate().AddDynamic(this, &UMyBeamSpell::PrimaryTargetDied);

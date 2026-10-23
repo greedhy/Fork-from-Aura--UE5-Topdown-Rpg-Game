@@ -16,6 +16,17 @@ class TEST_25D_API UMyDamageGameplayAbility : public UMyGameplayAbility
 {
 	GENERATED_BODY()
 public:
+	// Target-data tasks can provide the target before or after CommitAbility.
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	void SetOffensiveAttackTarget(AActor* TargetActor);
+	// For native attacks that already committed and selected a target.
+	UFUNCTION(BlueprintCallable, Category="Combat")
+	void ReportOffensiveAttack(AActor* TargetActor);
+	bool HasCommittedOffensiveAttack() const { return bAttackCommitted; }
+	virtual void CommitExecute(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo) override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
 	UFUNCTION(BlueprintCallable)
 	void CauseDamage(AActor* TargetActor);
@@ -83,6 +94,7 @@ protected:
 	//从角色设置的蒙太奇数组总，随机一个蒙太奇使用
 	UFUNCTION(BlueprintPure)
 	FTaggedMontage GetRandomTaggedMontageFromArray(const TArray<FTaggedMontage>& TaggedMontages) const;
-
-
+private:
+	TWeakObjectPtr<AActor> OffensiveAttackTarget;
+	bool bAttackCommitted = false;
 };

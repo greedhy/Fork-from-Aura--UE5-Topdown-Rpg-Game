@@ -38,8 +38,7 @@ void UPassiveNiagaraComponent::BeginPlay()
 
 void UPassiveNiagaraComponent::ActivateIfEquipped(UMyAbilitySystemComponent* MyASC)
 {
-	const bool bStartupAbilitiesGiven = MyASC->bStartupAbilitiesGiven;
-	if (bStartupAbilitiesGiven)
+	if (MyASC->bStartupAbilityGiven)
 	{
 		if (MyASC->GetStatusFromAbilityTag(PassiveSpellTag) == FMyGameplayTags::Get().Abilities_Status_Equipped)
 		{

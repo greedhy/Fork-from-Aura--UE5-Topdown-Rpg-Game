@@ -11,6 +11,8 @@
 #include"Components/AudioComponent.h"
 #include "MyProjectile.generated.h"
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FProjectileDamageApplied, AActor*);
+
 UCLASS()
 class TEST_25D_API AMyProjectile : public AActor
 {
@@ -18,6 +20,8 @@ class TEST_25D_API AMyProjectile : public AActor
 	
 public:	
 	AMyProjectile();
+    // Authority notification after the existing damage pipeline, for composable abilities.
+    FProjectileDamageApplied DamageApplied;
 	UFUNCTION()
 	void OnSphereOverlap(UPrimitiveComponent* OverlappedComponent, 
 		AActor* OtherActor, UPrimitiveComponent* OtherComp, 
@@ -28,7 +32,7 @@ public:
 	TObjectPtr<UProjectileMovementComponent> ProjectileMovement;
 	UPROPERTY(BlueprintReadWrite, meta = (ExposeOnSpawn = true))
 	FDamageEffectParams DamageEffectParams;
-	bool IsValidOverlap(AActor* OtherActor);
+	virtual bool IsValidOverlap(AActor* OtherActor);
 
 	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
 	TObjectPtr<USphereComponent> Sphere;
@@ -40,7 +44,8 @@ public:
 	virtual void Destroyed() override;
 protected:
 	virtual void BeginPlay() override;
-	void OnHit();
+	virtual void OnHit();
+	virtual bool ShouldPlayImpactOnDestroy() const { return true; }
 	
 private:
 	bool bHit = false;

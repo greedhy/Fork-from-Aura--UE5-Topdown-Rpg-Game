@@ -22,6 +22,12 @@
 #include "Interface/SaveInterface.h"
 #include "Backpack/BackpackComponent.h"
 #include "Player/MyPlayerState.h"
+#include "Character/PlayerCharacter.h"
+#include "CheckPoint/TravelPlayerStart.h"
+#include "AbilitySystem/MyAttributeSet.h"
+#include "Engine/Level.h"
+#include "Misc/PackageName.h"
+#include "Online/RoomSubsystem.h"
 
 AMyGameModeBase::AMyGameModeBase()
 	: BackpackPersistenceProvider(MakeUnique<FServerLocalBackpackPersistenceProvider>())
@@ -45,6 +51,7 @@ void AMyGameModeBase::PreLogin(const FString& Options, const FString& Address, c
 {
 	Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
 	if (!ErrorMessage.IsEmpty()) return;
+	if (auto* Rooms=GetGameInstance()->GetSubsystem<URoomSubsystem>(); Rooms && !Rooms->AuthorizeIncoming(Options,GetNumPlayers(),ErrorMessage)) return;
 
 	FString PlayerId;
 	if (!ResolveStablePlayerIdForLogin(Options, UniqueId, PlayerId))
@@ -108,6 +115,25 @@ void AMyGameModeBase::PostSeamlessTravel()
 		if (AMyPlayerState* PlayerState = Cast<AMyPlayerState>(CurrentPlayerState)) PlayerStates.Add(PlayerState);
 	}
 	RestoreSeamlessBackpackSessions(PlayerStates);
+}
+
+void AMyGameModeBase::HandleSeamlessTravelPlayer(AController*& C)
+{
+	Super::HandleSeamlessTravelPlayer(C);
+	// Remote clients may finish loading after PostSeamlessTravel has returned.
+	if (C)
+	{
+		AMyPlayerState* State=C->GetPlayerState<AMyPlayerState>();
+		FString PlayerId;
+		if (TryGetStablePlayerId(State,PlayerId)) RegisterBackpackSession(State,PlayerId,false);
+		else if (State && ResolveStablePlayerIdForLogin(FString(),State->GetUniqueId(),PlayerId))
+		{
+			// The UI-only lobby uses native PlayerStates. Their first seamless entry skips Login,
+			// so initialize the new gameplay state's normal server-owned persistence session here.
+			FString Error;
+			if (BeginBackpackLogin(PlayerId,Error)) CompleteBackpackLogin(State,PlayerId);
+		}
+	}
 }
 
 bool AMyGameModeBase::ResolveStablePlayerIdForLogin(const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& OutPlayerId)
@@ -418,27 +444,118 @@ FString AMyGameModeBase::GetMapNameFromMapAssetName(const FString& MapAssetName)
 
 AActor* AMyGameModeBase::ChoosePlayerStart_Implementation(AController* Player)
 {
-	UMyGameInstance* MyGameInstance = Cast<UMyGameInstance>(GetGameInstance());
+	// Menu/spectator worlds can use the native PlayerState and have no party slots.
+	if (!Player || !Player->GetPlayerState<AMyPlayerState>()) return Super::ChoosePlayerStart_Implementation(Player);
+	return FindArrivalStart(Player);
+}
 
-	TArray<AActor*> Actors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), Actors);
-	if (Actors.Num() > 0)
+AActor* AMyGameModeBase::FindPlayerStart_Implementation(AController* Player, const FString& IncomingName)
+{
+	if (!Player || !Player->GetPlayerState<AMyPlayerState>()) return Super::FindPlayerStart_Implementation(Player,IncomingName);
+	// Never reuse a StartSpot from the old world or silently fall back to world origin.
+	return FindArrivalStart(Player,FName(*IncomingName));
+}
+
+int32 AMyGameModeBase::AssignTravelSlot(AController* Player)
+{
+	AMyPlayerState* State=Player ? Player->GetPlayerState<AMyPlayerState>() : nullptr;
+	if (!State) return INDEX_NONE;
+	if (State->GetTravelPlayerSlot()!=INDEX_NONE) return State->GetTravelPlayerSlot();
+	TSet<int32> Used;
+	for (auto It=GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
-		AActor* SelectedActor = Actors[0];
-		for (AActor* Actor : Actors)
-		{
-			if (APlayerStart* PlayerStart = Cast<APlayerStart>(Actor))
-			{
-				if (PlayerStart->PlayerStartTag == MyGameInstance->PlayerStartTag)
-				{
-					SelectedActor = PlayerStart;
-					break;
-				}
-			}
-		}
-		return SelectedActor;
+		if (const AMyPlayerState* Other=It->Get()->GetPlayerState<AMyPlayerState>())
+			if (Other!=State && Other->GetTravelPlayerSlot()>=0) Used.Add(Other->GetTravelPlayerSlot());
 	}
-	return nullptr;
+	int32 Slot=0; while (Used.Contains(Slot)) ++Slot;
+	State->SetTravelPlayerSlot(Slot);
+	return Slot;
+}
+
+AActor* AMyGameModeBase::FindArrivalStart(AController* Player, FName OverrideGroup)
+{
+	const int32 Slot=AssignTravelSlot(Player);
+	FName Group=OverrideGroup;
+	if (Group.IsNone()) Group=FName(*UGameplayStatics::ParseOption(OptionsString,TEXT("ArrivalGroup")));
+	TArray<APlayerStart*> Starts;
+	FName MapDefault;
+	for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
+	{
+		Starts.Add(*It);
+		if (const auto* Start=Cast<ATravelPlayerStart>(*It); Start && Start->bDefaultEntryGroup)
+		{
+			if (!MapDefault.IsNone() && MapDefault!=Start->PlayerStartTag)
+			{
+				UE_LOG(LogTemp,Error,TEXT("[PortalTravel] More than one default arrival group in %s"),*GetWorld()->GetName());
+				return nullptr;
+			}
+			MapDefault=Start->PlayerStartTag;
+		}
+	}
+	if (Group.IsNone() && GetNetMode()==NM_Standalone)
+	{
+		if (const auto* GI=Cast<UMyGameInstance>(GetGameInstance())) Group=GI->PlayerStartTag;
+	}
+	if (Group.IsNone()) Group=MapDefault.IsNone() ? DefaultPlayerStartTag : MapDefault;
+	FString Error;
+	APlayerStart* Start=ATravelPlayerStart::FindForSlot(Starts,Group,Slot,Error);
+	if (!Start) { UE_LOG(LogTemp,Warning,TEXT("[PortalTravel] %s: %s"),*GetWorld()->GetName(),*Error); }
+	else { UE_LOG(LogTemp,Log,TEXT("[PortalTravel] Player slot %d -> %s at %s"),Slot,*Start->GetName(),*Start->GetActorLocation().ToString()); }
+	return Start;
+}
+
+bool AMyGameModeBase::TravelPartyThroughPortal(const TSoftObjectPtr<UWorld>& Destination, FName ArrivalGroup, FString& OutError)
+{
+	OutError.Reset();
+	if (!HasAuthority() || bPartyTravelRequested) { OutError=TEXT("A party transfer is already in progress."); return false; }
+	const FString DestinationAssetPath=UWorld::RemovePIEPrefix(Destination.ToSoftObjectPath().ToString());
+	const FString MapPackage=FSoftObjectPath(DestinationAssetPath).GetLongPackageName();
+	if (ArrivalGroup.IsNone() || ArrivalGroup.ToString().Contains(TEXT("?")) || ArrivalGroup.ToString().Contains(TEXT("#")) ||
+		!FPackageName::IsValidLongPackageName(MapPackage) || !FPackageName::DoesPackageExist(MapPackage))
+	{ OutError=TEXT("Configure a saved destination map and a valid arrival group."); return false; }
+	// Validate authored starts, not a live (or already destroyed) PIE duplicate.
+	// SoftObjectPtr::LoadSynchronous remaps visited maps to the current PIE instance.
+	UWorld* TargetWorld=LoadObject<UWorld>(nullptr,*DestinationAssetPath);
+	if (!TargetWorld || !TargetWorld->PersistentLevel) { OutError=TEXT("Could not load destination map for spawn validation."); return false; }
+	TArray<APlayerStart*> Starts;
+	for (AActor* Actor:TargetWorld->PersistentLevel->Actors)
+		if (auto* Start=Cast<APlayerStart>(Actor)) Starts.Add(Start);
+	TArray<APlayerCharacter*> Party;
+	for (auto It=GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PC=It->Get();
+		if (!IsValid(PC) || !IsValid(PC->PlayerState) || PC->PlayerState->IsOnlyASpectator()) continue;
+		APlayerCharacter* Character=Cast<APlayerCharacter>(PC->GetPawn());
+		if (!Character || !PC->GetPlayerState<AMyPlayerState>()) { OutError=TEXT("A player is not ready to travel."); return false; }
+		if (!ATravelPlayerStart::FindForSlot(Starts,ArrivalGroup,AssignTravelSlot(PC),OutError)) return false;
+		Party.Add(Character);
+	}
+	if (Party.IsEmpty()) { OutError=TEXT("No players to transfer."); return false; }
+	// Each player's snapshot travels with their own PlayerState. Never load everyone
+	// from the triggering player's single-player save slot.
+	for (APlayerCharacter* Character:Party)
+	{
+		auto* Progress=NewObject<ULoadScreenSaveGame>();
+		Character->WriteProgressToSaveData(Progress,ArrivalGroup);
+		const UMyAttributeSet* Attributes=CastChecked<UMyAttributeSet>(Character->GetAttributeSet());
+		Character->GetPlayerState<AMyPlayerState>()->SetTravelProgress(Progress,Attributes->GetHealth(),Attributes->GetMana());
+	}
+	if (const auto* GI=Cast<UMyGameInstance>(GetGameInstance()); GI && !GI->LoadSlotName.IsEmpty())
+	{
+		SaveWorldState(GetWorld(),Destination.ToSoftObjectPath().GetAssetName());
+		if (GetNetMode()==NM_Standalone) Party[0]->SaveProgress_Implementation(ArrivalGroup);
+	}
+	bUseSeamlessTravel=true;
+	bPartyTravelRequested=true;
+	const FString URL=MapPackage+TEXT("?ArrivalGroup=")+ArrivalGroup.ToString();
+	UE_LOG(LogTemp,Log,TEXT("[PortalTravel] Sending %d players to %s"),Party.Num(),*URL);
+	if (!GetWorld()->ServerTravel(URL,true))
+	{
+		bPartyTravelRequested=false;
+		for (APlayerCharacter* Character:Party) Character->GetPlayerState<AMyPlayerState>()->ClearTravelProgress();
+		OutError=TEXT("Server rejected map travel."); return false;
+	}
+	return true;
 }
 
 void AMyGameModeBase::PlayerDied(ACharacter* DeadCharacter)

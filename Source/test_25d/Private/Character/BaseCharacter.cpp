@@ -12,11 +12,13 @@
 #include"GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 #include"AbilitySystem/Passive/PassiveNiagaraComponent.h"
+#include "Terrain/TerrainStatusComponent.h"
 
 // Sets default values
 ABaseCharacter::ABaseCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	TerrainStatus = CreateDefaultSubobject<UTerrainStatusComponent>(TEXT("TerrainStatus"));
 	const FMyGameplayTags& GameplayTags = FMyGameplayTags::Get();
 
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera,ECR_Ignore);
@@ -119,6 +121,7 @@ FOnDeathSignature & ABaseCharacter::GetOnDeathDelegate()
 
 void ABaseCharacter::Die(const FVector& DeathImpulse)
 {
+	TerrainStatus->ClearTerrainEffects();
 	Weapon->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld, true));
 	MulticastHandleDeath(DeathImpulse);
 }
@@ -153,7 +156,16 @@ void ABaseCharacter::MulticastHandleDeath_Implementation(const FVector& DeathImp
 void ABaseCharacter::StunTagChanged(const FGameplayTag CallbackTag, int32 NewCount)
 {
 	bIsStunned = NewCount > 0;
-	GetCharacterMovement()->MaxWalkSpeed = bIsStunned ? 0.f : BaseWalkSpeed;
+	RefreshMovementSpeed();
+}
+
+void ABaseCharacter::RefreshMovementSpeed()
+{
+	const bool bHitReact = AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(FMyGameplayTags::Get().Effects_HitReact);
+	const bool bRooted = TerrainStatus && TerrainStatus->IsTerrainStatusActive(ETerrainSurfaceType::Vines);
+	const float Multiplier = TerrainStatus ? TerrainStatus->GetTerrainMovementMultiplier() : 1.f;
+	GetCharacterMovement()->MaxWalkSpeed = (bDead || bIsStunned || bHitReact || bRooted) ? 0.f : BaseWalkSpeed * Multiplier;
+	if (bRooted) GetCharacterMovement()->StopMovementImmediately();
 }
 
 // Called when the game starts or when spawned
@@ -283,7 +295,7 @@ bool ABaseCharacter::IsBeingShocked_Implementation() const
 }
 void ABaseCharacter::OnRep_Stunned()
 {
-
+	RefreshMovementSpeed();
 }
 
 void ABaseCharacter::OnRep_Burned()

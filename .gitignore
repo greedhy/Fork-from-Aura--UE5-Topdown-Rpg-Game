@@ -1,1 +1,28 @@
 .worktrees/
+
+# Unreal generated build products and caches (including plugins)
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# Local editor and assistant configuration
+.vs/
+.vscode/
+.idea/
+.claude/
+.codex/
+.mcp.json
+.ignore
+*.code-workspace
+*.sln
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Python caches and local secrets
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example

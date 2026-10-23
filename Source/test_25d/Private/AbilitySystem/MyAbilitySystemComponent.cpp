@@ -8,6 +8,8 @@
 #include"MyGameplayTags.h"
 #include "AbilitySystem/MyAbilitySystemLibrary.h"
 #include "AbilitySystem/Ability/MyGameplayAbility.h"
+#include "AbilitySystem/Ability/MyDamageGameplayAbility.h"
+#include "Interface/CombatInterface.h"
 #include "AbilitySystem/Data/AbilityInfo.h"
 #include "Game/LoadScreenSaveGame.h"
 #include "Interface/PlayerInterface.h"
@@ -57,7 +59,8 @@ void UMyAbilitySystemComponent::AddCharacterPassiveAbilities(const TArray<TSubcl
 	{
 		FGameplayAbilitySpec AbilitySpec = FGameplayAbilitySpec(AbilityClass, 1);
 		AbilitySpec.DynamicAbilityTags.AddTag(FMyGameplayTags::Get().Abilities_Status_Equipped);
-		GiveAbilityAndActivateOnce(AbilitySpec);
+		const FGameplayAbilitySpecHandle Handle = GiveAbility(AbilitySpec);
+		TryActivateAbility(Handle);
 
 	}
 }
@@ -70,6 +73,8 @@ void UMyAbilitySystemComponent::AbilityInputTagHeld(const FGameplayTag& InputTag
 	{
 		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
 		{
+			const auto* Ability = Cast<UMyGameplayAbility>(AbilitySpec.Ability);
+			if (Ability && Ability->IsInputToggleAbility()) continue;
 			AbilitySpecInputPressed(AbilitySpec);
 			if (!AbilitySpec.IsActive())
 			{
@@ -160,12 +165,14 @@ void UMyAbilitySystemComponent::ServerUpgradeAttribute_Implementation(const FGam
 void UMyAbilitySystemComponent::OnRep_ActivateAbilities()
 {
 	Super::OnRep_ActivateAbilities();
-	if (!bStartupAbilityGiven)
+	// GAS retries OnRep when a spec's ability reference is not mapped yet.
+	// Do not mark that incomplete list ready, or suppress the later retry/update.
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
 	{
-		bStartupAbilityGiven = true;
-		AbilitiesGiven.Broadcast();
+		if (!Spec.Ability) return;
 	}
-
+	bStartupAbilityGiven = true;
+	AbilitiesGiven.Broadcast();
 }
 FGameplayAbilitySpec* UMyAbilitySystemComponent::GetSpecFromAbilityTag(const FGameplayTag& AbilityTag)
 {
@@ -237,7 +244,9 @@ void UMyAbilitySystemComponent::ServerSpendSpellPoint_Implementation(const FGame
 			AbilitySpec->Level += 1;
 		}
 		ClientUpdateAbilityStatus(AbilityTag, Status, AbilitySpec->Level);
-		MarkAbilitySpecDirty(*AbilitySpec);
+		// Metadata must reach the owner even for ServerOnly abilities; the default
+		// dirty path skips their existing specs as an activation-state optimization.
+		MarkAbilitySpecDirty(*AbilitySpec, true);
 	}
 }
 bool UMyAbilitySystemComponent::GetDescriptionsByAbilityTag(const FGameplayTag& AbilityTag, FString& OutDescription, FString& OutNextLevelDescription)
@@ -340,57 +349,55 @@ void UMyAbilitySystemComponent::ClientEquipAbility_Implementation(const FGamepla
 }
 void UMyAbilitySystemComponent::ServerEquipAbility_Implementation(const FGameplayTag& AbilityTag, const FGameplayTag& Slot)
 {
-	if (FGameplayAbilitySpec* AbilitySpec = GetSpecFromAbilityTag(AbilityTag))
+	FGameplayAbilitySpec* Spec = GetSpecFromAbilityTag(AbilityTag);
+	if (!Spec || !Slot.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("InputTag")))) return;
+	const FMyGameplayTags& Tags = FMyGameplayTags::Get();
+	const FGameplayTag Status = GetStatusFromSpec(*Spec);
+	if (Status != Tags.Abilities_Status_Equipped && Status != Tags.Abilities_Status_Unlocked) return;
+	const bool bPassive = IsPassiveAbility(*Spec);
+	if (bPassive != Slot.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("InputTag.Passive")))) return;
+	const auto* EquippingAbility = Cast<UMyGameplayAbility>(Spec->Ability);
+	if (EquippingAbility && EquippingAbility->ShouldCancelOnEquipChange() && Spec->IsActive())
+		CancelAbilityHandle(Spec->Handle);
+	const FGameplayTag PreviousSlot = GetInputTagFromSpec(*Spec);
+	if (PreviousSlot == Slot && Spec->IsActive())
 	{
-		const FMyGameplayTags& GameplayTags = FMyGameplayTags::Get();
-		const FGameplayTag& PrevSlot = GetInputTagFromSpec(*AbilitySpec);
-		const FGameplayTag& Status = GetStatusFromSpec(*AbilitySpec);
-
-		const bool bStatusValid = Status == GameplayTags.Abilities_Status_Equipped || Status == GameplayTags.Abilities_Status_Unlocked;
-		if (bStatusValid)
-		{
-			// Handle activation/deactivation for passive abilities
-			if (!SlotIsEmpty(Slot)) // There is an ability in this slot already. Deactivate and clear its slot.
-			{
-				FGameplayAbilitySpec* SpecWithSlot = GetSpecWithSlot(Slot);
-				if (SpecWithSlot)
-				{
-					// is that ability the same as this ability? If so, we can return early.
-					if (AbilityTag.MatchesTagExact(GetAbilityTagFromSpec(*SpecWithSlot)))
-					{
-						ClientEquipAbility(AbilityTag, GameplayTags.Abilities_Status_Equipped, Slot, PrevSlot);
-						return;
-					}
-
-					if (IsPassiveAbility(*SpecWithSlot))
-					{
-						MulticastActivatePassiveEffect(GetAbilityTagFromSpec(*SpecWithSlot), false);
-						DeactivatePassiveAbility.Broadcast(GetAbilityTagFromSpec(*SpecWithSlot));
-					}
-
-					ClearSlot(SpecWithSlot);
-				}
-			}
-			if (!AbilityHasAnySlot(*AbilitySpec)) // Ability doesn't yet have a slot (it's not active)
-			{
-				if (IsPassiveAbility(*AbilitySpec))
-				{
-					TryActivateAbility(AbilitySpec->Handle);
-					MulticastActivatePassiveEffect(AbilityTag, true);
-				}
-				AbilitySpec->DynamicAbilityTags.RemoveTag(GetStatusFromSpec(*AbilitySpec));
-				AbilitySpec->DynamicAbilityTags.AddTag(GameplayTags.Abilities_Status_Equipped);
-			}
-			AssignSlotToAbility(*AbilitySpec, Slot);//为ability清除旧slot，为slot绑定新ability
-			MarkAbilitySpecDirty(*AbilitySpec);
-		}
-		ClientEquipAbility(AbilityTag, GameplayTags.Abilities_Status_Equipped, Slot, PrevSlot);
+		ClientEquipAbility(AbilityTag, Tags.Abilities_Status_Equipped, Slot, PreviousSlot);
+		return;
 	}
+	// Reject a failed passive activation before displacing the existing slot occupant.
+	if (bPassive && !Spec->IsActive() && !TryActivateAbility(Spec->Handle)) return;
+	if (FGameplayAbilitySpec* OldSpec = GetSpecWithSlot(Slot); OldSpec && OldSpec != Spec)
+	{
+		const FGameplayTag OldTag = GetAbilityTagFromSpec(*OldSpec);
+		if (IsPassiveAbility(*OldSpec))
+		{
+			DeactivatePassiveAbility.Broadcast(OldTag);
+			MulticastActivatePassiveEffect(OldTag, false);
+		}
+		else if (const auto* OldAbility = Cast<UMyGameplayAbility>(OldSpec->Ability);
+			OldAbility && OldAbility->ShouldCancelOnEquipChange())
+		{
+			CancelAbilityHandle(OldSpec->Handle);
+		}
+		ClearSlot(OldSpec);
+		OldSpec->DynamicAbilityTags.RemoveTag(Tags.Abilities_Status_Equipped);
+		OldSpec->DynamicAbilityTags.AddTag(Tags.Abilities_Status_Unlocked);
+		MarkAbilitySpecDirty(*OldSpec, true);
+		ClientUpdateAbilityStatus(OldTag, Tags.Abilities_Status_Unlocked, OldSpec->Level);
+	}
+	AssignSlotToAbility(*Spec, Slot);
+	Spec->DynamicAbilityTags.RemoveTag(Status);
+	Spec->DynamicAbilityTags.AddTag(Tags.Abilities_Status_Equipped);
+	MarkAbilitySpecDirty(*Spec, true);
+	if (bPassive) MulticastActivatePassiveEffect(AbilityTag, true);
+	ClientEquipAbility(AbilityTag, Tags.Abilities_Status_Equipped, Slot, PreviousSlot);
 }
 bool UMyAbilitySystemComponent::IsPassiveAbility(const FGameplayAbilitySpec& Spec) const
 {
 	const UAbilityInfo* AbilityInfo = UMyAbilitySystemLibrary::GetAbilityInfo(GetAvatarActor());
 	const FGameplayTag AbilityTag = GetAbilityTagFromSpec(Spec);
+	if (!AbilityInfo) return false;
 	const FMyAbilityInfo& Info = AbilityInfo->FindAbilityInfoForTag(AbilityTag);
 	const FGameplayTag AbilityType = Info.AbilityType;
 	return AbilityType.MatchesTagExact(FMyGameplayTags::Get().Abilities_Type_Passive);
@@ -416,7 +423,13 @@ void UMyAbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& Input
 	{
 		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
 		{
-			
+			const auto* Ability = Cast<UMyGameplayAbility>(AbilitySpec.Ability);
+			if (Ability && Ability->IsInputToggleAbility())
+			{
+				// Do not rely on client Spec.IsActive for a ServerOnly ability.
+				ServerToggleAbility(AbilitySpec.Handle, InputTag);
+				continue;
+			}
 			if (AbilitySpec.IsActive())
 			{
 				AbilitySpecInputPressed(AbilitySpec);
@@ -424,6 +437,20 @@ void UMyAbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& Input
 			}
 		}
 	}
+}
+
+void UMyAbilitySystemComponent::ServerToggleAbility_Implementation(FGameplayAbilitySpecHandle AbilityHandle, FGameplayTag InputTag)
+{
+	FGameplayAbilitySpec* Spec = FindAbilitySpecFromHandle(AbilityHandle);
+	const auto* Ability = Spec ? Cast<UMyGameplayAbility>(Spec->Ability) : nullptr;
+	const auto& Tags = FMyGameplayTags::Get();
+	if (!Ability || !Ability->IsInputToggleAbility() || !InputTag.IsValid()
+		|| !Spec->DynamicAbilityTags.HasTagExact(InputTag)
+		|| GetStatusFromSpec(*Spec) != Tags.Abilities_Status_Equipped
+		|| !InputTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("InputTag")))
+		|| InputTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("InputTag.Passive")))) return;
+	if (Spec->IsActive()) CancelAbilityHandle(AbilityHandle);
+	else if (!HasMatchingGameplayTag(Tags.Player_Block_InputPressed)) TryActivateAbility(AbilityHandle);
 }
 
 void UMyAbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& InputTag)
@@ -435,7 +462,8 @@ void UMyAbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inpu
 	{
 		if (AbilitySpec.DynamicAbilityTags.HasTagExact(InputTag))
 		{
-
+			const auto* Ability = Cast<UMyGameplayAbility>(AbilitySpec.Ability);
+			if (Ability && Ability->IsInputToggleAbility()) continue;
 			if (AbilitySpec.IsActive())
 			{
 
@@ -456,7 +484,23 @@ void UMyAbilitySystemComponent::AddCharacterAbilitiesFromSaveData(ULoadScreenSav
 
 		LoadedAbilitySpec.DynamicAbilityTags.AddTag(Data.AbilitySlot);
 		LoadedAbilitySpec.DynamicAbilityTags.AddTag(Data.AbilityStatus);
-		if (Data.AbilityType == FMyGameplayTags::Get().Abilities_Type_Offensive)
+		const auto* LoadedAbility = Cast<UMyGameplayAbility>(LoadedAbilitySpec.Ability);
+		if (LoadedAbility && LoadedAbility->IsInputToggleAbility())
+		{
+			// Legacy saves used a passive slot. Keep the learned level, release that
+			// incompatible slot, and never restore a running toggle from a save.
+			if (Data.AbilitySlot.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("InputTag.Passive"))))
+			{
+				LoadedAbilitySpec.DynamicAbilityTags.RemoveTag(Data.AbilitySlot);
+				if (Data.AbilityStatus == FMyGameplayTags::Get().Abilities_Status_Equipped)
+				{
+					LoadedAbilitySpec.DynamicAbilityTags.RemoveTag(Data.AbilityStatus);
+					LoadedAbilitySpec.DynamicAbilityTags.AddTag(FMyGameplayTags::Get().Abilities_Status_Unlocked);
+				}
+			}
+			GiveAbility(LoadedAbilitySpec);
+		}
+		else if (Data.AbilityType == FMyGameplayTags::Get().Abilities_Type_Offensive)
 		{
 			GiveAbility(LoadedAbilitySpec);
 		}
@@ -464,8 +508,8 @@ void UMyAbilitySystemComponent::AddCharacterAbilitiesFromSaveData(ULoadScreenSav
 		{
 			if (Data.AbilityStatus.MatchesTagExact(FMyGameplayTags::Get().Abilities_Status_Equipped))
 			{
-				GiveAbilityAndActivateOnce(LoadedAbilitySpec);
-				MulticastActivatePassiveEffect(Data.AbilityTag, true);
+				const FGameplayAbilitySpecHandle Handle = GiveAbility(LoadedAbilitySpec);
+				if (TryActivateAbility(Handle)) MulticastActivatePassiveEffect(Data.AbilityTag, true);
 			}
 			else
 			{
@@ -473,6 +517,20 @@ void UMyAbilitySystemComponent::AddCharacterAbilitiesFromSaveData(ULoadScreenSav
 			}
 		}
 	}
-	bStartupAbilitiesGiven = true;
-	AbilitiesGivenDelegate.Broadcast();
+	// Save/travel restoration must notify the same consumers as startup grants
+	// and owner-client replication.
+	bStartupAbilityGiven = true;
+	AbilitiesGiven.Broadcast();
+}
+void UMyAbilitySystemComponent::NotifyOffensiveAttack(UGameplayAbility* SourceAbility, AActor* Target)
+{
+	AActor* Avatar = GetAvatarActor();
+	const auto* Attack = Cast<UMyDamageGameplayAbility>(SourceAbility);
+	if (!IsValid(Avatar) || !Avatar->HasAuthority() || !IsValid(Target)
+		|| !Attack || !Attack->HasCommittedOffensiveAttack() || !SourceAbility->IsActive()
+		|| SourceAbility->GetAbilitySystemComponentFromActorInfo() != this
+		|| SourceAbility->GetAssetTags().HasTag(FGameplayTag::RequestGameplayTag(TEXT("Abilities.Passive")))
+		|| !Target->Implements<UCombatInterface>() || ICombatInterface::Execute_IsDead(Target)
+		|| !UMyAbilitySystemLibrary::IsNotFriend(Avatar, Target)) return;
+	OffensiveAttackTargeted.Broadcast(SourceAbility, Target);
 }

@@ -19,6 +19,8 @@ class TEST_25D_API UMyProjectileSpell : public UMyDamageGameplayAbility
 public:
 	
 protected:
+	// Shared deferred-spawn path for active FireBolt and persistent orbiting fireballs.
+	AMyProjectile* CreateProjectileDeferred(TSubclassOf<AMyProjectile> Class, const FTransform& Transform);
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 		const FGameplayAbilityActorInfo* ActorInfo, 
 		const FGameplayAbilityActivationInfo ActivationInfo, 

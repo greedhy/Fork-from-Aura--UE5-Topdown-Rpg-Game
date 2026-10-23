@@ -34,6 +34,9 @@ public:
 	virtual void Logout(AController* Exiting) override;
 	virtual void ProcessServerTravel(const FString& URL, bool bAbsolute = false) override;
 	virtual void PostSeamlessTravel() override;
+	virtual void HandleSeamlessTravelPlayer(AController*& C) override;
+	virtual AActor* FindPlayerStart_Implementation(AController* Player, const FString& IncomingName = TEXT("")) override;
+	bool TravelPartyThroughPortal(const TSoftObjectPtr<UWorld>& Destination, FName ArrivalGroup, FString& OutError);
 
 	static bool ResolveStablePlayerIdForLogin(const FString& Options, const FUniqueNetIdRepl& UniqueId, FString& OutPlayerId);
 	bool BeginBackpackLogin(const FString& PlayerId, FString& OutError);
@@ -87,6 +90,9 @@ protected:
 	virtual void BeginPlay() override;
 
 private:
+	int32 AssignTravelSlot(AController* Player);
+	AActor* FindArrivalStart(AController* Player, FName OverrideGroup = NAME_None);
+	bool bPartyTravelRequested = false;
 	struct FActiveBackpackSession
 	{
 		TWeakObjectPtr<AMyPlayerState> PlayerState;

@@ -12,6 +12,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UNiagaraComponent;
 class UBackpackComponent;
+class ULoadScreenSaveGame;
 
 UCLASS()
 class TEST_25D_API APlayerCharacter : public ABaseCharacter,public IPlayerInterface
@@ -38,6 +39,7 @@ public:
 	virtual void ShowMagicCircle_Implementation(UMaterialInterface* DecalMaterial) override;
 	virtual void HideMagicCircle_Implementation() override;
 	virtual void SaveProgress_Implementation(const FName& CheckpointTag) override;
+	void WriteProgressToSaveData(ULoadScreenSaveGame* SaveData, const FName& CheckpointTag);
 
 	UFUNCTION(BlueprintPure, Category = "Backpack")
 	UBackpackComponent* GetBackpackComponent() const;

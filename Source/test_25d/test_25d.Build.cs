@@ -12,7 +12,12 @@ public class test_25d : ModuleRules
 
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "CoreOnline", "Engine", "InputCore", "EnhancedInput", "GameplayAbilities", "ModelViewViewModel", "NetCore", "OnlineSubsystem", "SlateCore" });
 
-        PrivateDependencyModuleNames.AddRange(new string[] { "GameplayTags", "GameplayTasks", "NavigationSystem", "Niagara", "AIModule" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "GameplayTags", "GameplayTasks", "NavigationSystem", "Niagara", "AIModule", "UMG", "Slate", "OnlineSubsystemUtils" });
+        DynamicallyLoadedModuleNames.Add("OnlineSubsystemNull");
+        PrivateDependencyModuleNames.Add("Json");
+        PublicDependencyModuleNames.Add("MassEntity");
+        PublicDependencyModuleNames.Add("MassCore");
+        PrivateDependencyModuleNames.Add("MassSimulation");
         // Uncomment if you are using Slate UI
         // PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
 

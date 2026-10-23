@@ -22,6 +22,10 @@ void UOverlayWidgetController::BroadcastInitialValues()
     OnManaChanged.Broadcast(GetMyAS()->GetMana());
     OnMaxManaChanged.Broadcast(GetMyAS()    ->GetMaxMana());
 
+    // InitOverlay calls this after SetWidgetController has bound the widgets.
+    // Abilities may already be ready when rebuilding the HUD after travel.
+    BroadcastAbilityInfo();
+
 
 }
 
@@ -65,14 +69,9 @@ void UOverlayWidgetController::BindCallbacksToDependencies()
     if (GetMyASC())
     {
         GetMyASC()->AbilityEquipped.AddUObject(this, &UOverlayWidgetController::OnAbilityEquipped);
-        if (GetMyASC()->bStartupAbilityGiven)
-        {
-            BroadcastAbilityInfo();
-        }
-        else
-        {
-            GetMyASC()->AbilitiesGiven.AddUObject(this, &UOverlayWidgetController::BroadcastAbilityInfo);
-        }
+        // Listen for later grants/replication; the initial snapshot is sent only
+        // after the view has subscribed, in BroadcastInitialValues.
+        GetMyASC()->AbilitiesGiven.AddUObject(this, &UOverlayWidgetController::BroadcastAbilityInfo);
             GetMyASC()->EffectAssectTags.AddLambda(
                 [this](const FGameplayTagContainer& TagContainer)
                 {

@@ -12,6 +12,7 @@
 #include"BehaviorTree/BlackboardComponent.h"
 #include"GameFramework/CharacterMovementComponent.h"
 #include "AbilitySystem/Debuff/DebuffNiagaraComponent.h"
+#include "Mass/MonsterManagementSubsystem.h"
 
 AEnemyCharacter::AEnemyCharacter()
 {
@@ -60,6 +61,7 @@ void AEnemyCharacter::BeginPlay()
 	if (HasAuthority())
 	{
 		UMyAbilitySystemLibrary::GiveStartupAbilities(this, AbilitySystemComponent,CharacterClass);
+		if (auto* Manager = GetWorld()->GetSubsystem<UMonsterManagementSubsystem>()) Manager->RegisterEnemy(this);
 	}
 
 	if (UMyUserWidget* UserWidget = Cast<UMyUserWidget>(HealthBar->GetUserWidgetObject()))
@@ -74,6 +76,8 @@ void AEnemyCharacter::BeginPlay()
 			[this](const FOnAttributeChangeData& Data)
 			{
 				OnHealthChanged.Broadcast(Data.NewValue);
+				if (HasAuthority() && Data.NewValue < Data.OldValue)
+					if (auto* Manager = GetWorld()->GetSubsystem<UMonsterManagementSubsystem>()) Manager->NotifyDamaged(this);
 			}
 		);
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(AS->GetMaxHealthAttribute()).AddLambda(
@@ -97,12 +101,19 @@ void AEnemyCharacter::BeginPlay()
 
 void AEnemyCharacter::Die(const FVector& DeathImpulse)
 {
+	if (auto* Manager = GetWorld()->GetSubsystem<UMonsterManagementSubsystem>()) Manager->UnregisterEnemy(this);
 	SetLifeSpan(LifeSpan);
 	if (MyAIController)
 	MyAIController->GetBlackboardComponent()->SetValueAsBool(FName("Dead"), true);
 	SpawnLoot();
 	Super::Die(DeathImpulse);
 
+}
+
+void AEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (auto* Manager = GetWorld()->GetSubsystem<UMonsterManagementSubsystem>()) Manager->UnregisterEnemy(this);
+	Super::EndPlay(EndPlayReason);
 }
 
 void AEnemyCharacter::PossessedBy(AController* NewController)
@@ -142,7 +153,7 @@ void AEnemyCharacter::InitlizeDefaultAttributes() const
 void AEnemyCharacter::HitReactTagChanged(const FGameplayTag CallbackTag, int32 NewCount)
 {
 	 bHitReacting = NewCount > 0;
-	 GetCharacterMovement()->MaxWalkSpeed = bHitReacting ? 0 : BaseWalkSpeed;
+	 RefreshMovementSpeed();
 	if (MyAIController&& MyAIController->GetBlackboardComponent())
 	 MyAIController->GetBlackboardComponent()->SetValueAsBool(FName("HitReacting"), bHitReacting);
 

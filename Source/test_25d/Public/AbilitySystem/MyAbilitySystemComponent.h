@@ -16,6 +16,7 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(FAbilityStatusChanged, const FGameplayTag
 DECLARE_MULTICAST_DELEGATE_FourParams(FAbilityEquipped, const FGameplayTag& /*AbilityTag*/, const FGameplayTag& /*Status*/, const FGameplayTag& /*Slot*/, const FGameplayTag& /*PrevSlot*/);
 DECLARE_MULTICAST_DELEGATE_OneParam(FDeactivatePassiveAbility, const FGameplayTag& /*AbilityTag*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FActivatePassiveEffect, const FGameplayTag& /*AbilityTag*/, bool /*bActivate*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOffensiveAttackTargeted, UGameplayAbility*, AActor*);
 
 
 /**
@@ -31,13 +32,14 @@ public:
 	FEffectAssectTags EffectAssectTags;
 	FAbilitiesGiven AbilitiesGiven;
 	FAbilityStatusChanged AbilityStatusChanged;
-	FAbilitiesGiven AbilitiesGivenDelegate;
 	FAbilityEquipped AbilityEquipped;
 	FDeactivatePassiveAbility DeactivatePassiveAbility;
 	FActivatePassiveEffect ActivatePassiveEffect;
+	// Server-local accepted attack signal. Cosmetic/projectile damage must not emit it.
+	FOffensiveAttackTargeted OffensiveAttackTargeted;
+	void NotifyOffensiveAttack(UGameplayAbility* SourceAbility, AActor* Target);
 
 	bool bStartupAbilityGiven = false;
-	bool bStartupAbilitiesGiven = false;
 
 	void AddCharacterAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupAbilities);
 	void AddCharacterPassiveAbilities(const TArray<TSubclassOf<UGameplayAbility>>& StartupPassiveAbilities);
@@ -60,6 +62,8 @@ public:
 	void AddCharacterAbilitiesFromSaveData(ULoadScreenSaveGame* SaveData);
 
 	void AbilityInputTagPressed(const FGameplayTag& InputTag);
+	UFUNCTION(Server, Reliable)
+	void ServerToggleAbility(FGameplayAbilitySpecHandle AbilityHandle, FGameplayTag InputTag);
 
 	FGameplayTag GetStatusFromAbilityTag(const FGameplayTag& AbilityTag);
 	FGameplayTag GetSlotFromAbilityTag(const FGameplayTag& AbilityTag);

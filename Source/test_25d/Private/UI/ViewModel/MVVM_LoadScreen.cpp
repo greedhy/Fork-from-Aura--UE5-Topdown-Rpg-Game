@@ -8,6 +8,9 @@
 #include "Game/LoadScreenSaveGame.h"
 #include "Game/MyGameModeBase.h"
 #include "Kismet/GameplayStatics.h"
+#include "Online/RoomSubsystem.h"
+#include "UI/HUD/LoadScreenHUD.h"
+#include "GameFramework/PlayerController.h"
 void UMVVM_LoadScreen::InitializeLoadSlots()
 {
 	LoadSlot_0 = NewObject<UMVVM_LoadSlot>(this, LoadSlotViewModelClass);
@@ -99,15 +102,22 @@ void UMVVM_LoadScreen::DeleteButtonPressed()
 
 void UMVVM_LoadScreen::PlayButtonPressed()
 {
+	if (!IsValid(SelectedSlot) || SelectedSlot->SlotStatus!=Taken ||
+		!UGameplayStatics::DoesSaveGameExist(SelectedSlot->GetLoadSlotName(),SelectedSlot->SlotIndex)) return;
 	AMyGameModeBase* MyGameMode = Cast<AMyGameModeBase>(UGameplayStatics::GetGameMode(this));
+	if (!MyGameMode) return;
 	UMyGameInstance* MyGameInstance = Cast<UMyGameInstance>(MyGameMode->GetGameInstance());
-	MyGameInstance->PlayerStartTag = SelectedSlot->PlayerStartTag;
+	if (!MyGameInstance) return;
+	// Mode selection always starts in the configured default map, using that map's entry.
+	MyGameInstance->PlayerStartTag = MyGameMode->DefaultPlayerStartTag;
 	MyGameInstance->LoadSlotName = SelectedSlot->GetLoadSlotName();
 	MyGameInstance->LoadSlotIndex = SelectedSlot->SlotIndex;
 
-	if (IsValid(SelectedSlot))
+	if (auto* Rooms=MyGameInstance->GetSubsystem<URoomSubsystem>())
 	{
-		MyGameMode->TravelToMap(SelectedSlot);
+		Rooms->ConfigureSelection(SelectedSlot->GetPlayerName(),MyGameMode->DefaultMap);
+		if (auto* PC=MyGameInstance->GetFirstLocalPlayerController())
+			if (auto* HUD=Cast<ALoadScreenHUD>(PC->GetHUD())) HUD->ShowModeSelection();
 	}
 }
 

@@ -8,6 +8,7 @@
 
 class UMVVM_LoadScreen;
 class ULoadScreenWidget;
+class URoomMenuWidget;
 /**
  * 
  */
@@ -16,6 +17,10 @@ class TEST_25D_API ALoadScreenHUD : public AHUD
 {
 	GENERATED_BODY()
 public:
+	UFUNCTION(BlueprintCallable) void ShowModeSelection();
+	UFUNCTION(BlueprintCallable) void ShowSaveSelection();
+	UPROPERTY(EditDefaultsOnly, Category="Rooms") TSubclassOf<URoomMenuWidget> RoomMenuWidgetClass;
+	UPROPERTY(BlueprintReadOnly, Category="Rooms") TObjectPtr<URoomMenuWidget> RoomMenuWidget;
 
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<UUserWidget> LoadScreenWidgetClass;

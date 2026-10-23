@@ -89,7 +89,8 @@ bool FMyGameplayEffectContext::NetSerialize(FArchive& Ar, UPackageMap* Map, bool
 
 	}
 
-	Ar.SerializeBits(&RepBits, 19);
+	// Flags use indices 0 through 19, including the radial origin.
+	Ar.SerializeBits(&RepBits, 20);
 
 	if (RepBits & (1 << 0))
 	{

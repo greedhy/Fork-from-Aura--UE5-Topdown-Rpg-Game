@@ -130,7 +130,9 @@ void APlayerCharacter::LoadProgress()
 	AMyGameModeBase* MyGameMode = Cast<AMyGameModeBase>(UGameplayStatics::GetGameMode(this));
 	if (MyGameMode)
 	{
-		ULoadScreenSaveGame* SaveData = MyGameMode->RetrieveInGameSaveData();
+		AMyPlayerState* TravelState = GetPlayerState<AMyPlayerState>();
+		const bool bFromTravel = TravelState && TravelState->GetTravelProgress();
+		ULoadScreenSaveGame* SaveData = bFromTravel ? TravelState->GetTravelProgress() : MyGameMode->RetrieveInGameSaveData();
 		if (SaveData == nullptr) return;
 
 		if (SaveData->bFirstTimeLoadIn)
@@ -138,6 +140,11 @@ void APlayerCharacter::LoadProgress()
 			
 			InitlizeDefaultAttributes();
 			AddCharacterAbilities();
+			// Discover learnable level-one abilities on a new save as well as an old save.
+			if (UMyAbilitySystemComponent* MyASC = Cast<UMyAbilitySystemComponent>(AbilitySystemComponent))
+			{
+				MyASC->UpdateAbilityStatuses(GetPlayerLevel_Implementation());
+			}
 		}
 		else
 		{
@@ -155,6 +162,18 @@ void APlayerCharacter::LoadProgress()
 			}
 
 			UMyAbilitySystemLibrary::InitializeDefaultAttributesFromSaveData(this, AbilitySystemComponent, SaveData);
+			// Discover abilities added to the catalog after this save was created.
+			// Existing specs (including their rank and equipped slot) remain unchanged.
+			if (UMyAbilitySystemComponent* MyASC = Cast<UMyAbilitySystemComponent>(AbilitySystemComponent))
+			{
+				MyASC->UpdateAbilityStatuses(SaveData->PlayerLevel);
+			}
+		}
+		if (bFromTravel)
+		{
+			AbilitySystemComponent->SetNumericAttributeBase(UMyAttributeSet::GetHealthAttribute(), TravelState->GetTravelHealth());
+			AbilitySystemComponent->SetNumericAttributeBase(UMyAttributeSet::GetManaAttribute(), TravelState->GetTravelMana());
+			TravelState->ClearTravelProgress();
 		}
 	}
 }
@@ -253,6 +272,7 @@ int32 APlayerCharacter::GetSpellPoints_Implementation() const
 
 void APlayerCharacter::OnRep_Stunned()
 {
+	Super::OnRep_Stunned();
 	if (UMyAbilitySystemComponent* MyASC = Cast<UMyAbilitySystemComponent>(AbilitySystemComponent))
 	{
 		const FMyGameplayTags& GameplayTags = FMyGameplayTags::Get();
@@ -305,11 +325,20 @@ void APlayerCharacter::HideMagicCircle_Implementation()
 }
 void APlayerCharacter::SaveProgress_Implementation(const FName& CheckpointTag)
 {
+	if (!HasAuthority()) return;
 	AMyGameModeBase* MyGameMode = Cast<AMyGameModeBase>(UGameplayStatics::GetGameMode(this));
 	if (MyGameMode)
 	{
 		ULoadScreenSaveGame* SaveData = MyGameMode->RetrieveInGameSaveData();
 		if (SaveData == nullptr) return;
+		WriteProgressToSaveData(SaveData, CheckpointTag);
+		MyGameMode->SaveInGameProgressData(SaveData);
+	}
+}
+
+void APlayerCharacter::WriteProgressToSaveData(ULoadScreenSaveGame* SaveData, const FName& CheckpointTag)
+{
+	if (!HasAuthority() || !SaveData) return;
 
 		SaveData->PlayerStartTag = CheckpointTag;
 
@@ -351,8 +380,6 @@ void APlayerCharacter::SaveProgress_Implementation(const FName& CheckpointTag)
 			});
 		MyASC->ForEachAbility(SaveAbilityDelegate);
 
-		MyGameMode->SaveInGameProgressData(SaveData);
-	}
 }
 
 UBackpackComponent* APlayerCharacter::GetBackpackComponent() const

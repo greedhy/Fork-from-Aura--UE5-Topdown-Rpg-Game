@@ -10,6 +10,7 @@ void AMyEnemySpawnPoint::SpawnEnemy()
 
 	AEnemyCharacter* Enemy = GetWorld()->SpawnActorDeferred<AEnemyCharacter>(EnemyClass, GetActorTransform());
 	Enemy->SetLevel(EnemyLevel);
+	Enemy->MonsterRoomId = MonsterRoomId;
 	Enemy->SetCharacterClass(CharacterClass);
 	Enemy->FinishSpawning(GetActorTransform());
 	Enemy->SpawnDefaultController();

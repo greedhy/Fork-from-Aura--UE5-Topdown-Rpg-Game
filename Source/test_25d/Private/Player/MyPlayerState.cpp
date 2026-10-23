@@ -7,6 +7,7 @@
 #include <Net/UnrealNetwork.h>
 
 #include "AbilitySystem/MyAttributeSet.h"
+#include "Game/LoadScreenSaveGame.h"
 AMyPlayerState::AMyPlayerState()
 {
 	//NetUpdateFrequency = 100.f;	
@@ -47,6 +48,7 @@ void AMyPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(AMyPlayerState, XP);
 	DOREPLIFETIME(AMyPlayerState, AttributePoints);
 	DOREPLIFETIME(AMyPlayerState, SpellPoints);
+	DOREPLIFETIME(AMyPlayerState, TravelPlayerSlot);
 }
 
 UAbilitySystemComponent* AMyPlayerState::GetAbilitySystemComponent() const
@@ -178,6 +180,14 @@ void AMyPlayerState::CopyProperties(APlayerState* PlayerState)
 	{
 		DestinationState->SetBackpackPersistencePlayerId(BackpackPersistencePlayerId);
 		DestinationState->ImportBackpackSnapshot(ExportBackpackSnapshot());
+		DestinationState->TravelPlayerSlot = TravelPlayerSlot;
+		DestinationState->TravelProgress = TravelProgress;
+		DestinationState->TravelHealth = TravelHealth;
+		DestinationState->TravelMana = TravelMana;
+		DestinationState->Level = Level;
+		DestinationState->XP = XP;
+		DestinationState->AttributePoints = AttributePoints;
+		DestinationState->SpellPoints = SpellPoints;
 	}
 }
 
@@ -189,4 +199,11 @@ void AMyPlayerState::OverrideWith(APlayerState* PlayerState)
 		SetBackpackPersistencePlayerId(SourceState->GetBackpackPersistencePlayerId());
 		ImportBackpackSnapshot(SourceState->ExportBackpackSnapshot());
 	}
+}
+
+void AMyPlayerState::SetTravelProgress(ULoadScreenSaveGame* Progress, float Health, float Mana)
+{
+	TravelProgress = Progress;
+	TravelHealth = Health;
+	TravelMana = Mana;
 }

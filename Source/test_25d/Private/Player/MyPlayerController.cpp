@@ -216,6 +216,29 @@ void AMyPlayerController::AutoRun()
 void AMyPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	InitializeLocalInput();
+}
+
+void AMyPlayerController::ReceivedPlayer()
+{
+	Super::ReceivedPlayer();
+	InitializeLocalInput();
+}
+
+void AMyPlayerController::AcknowledgePossession(APawn* P)
+{
+	Super::AcknowledgePossession(P);
+	MyAbilitySystemComponent=nullptr;
+	bAutoRunning=false; FollowTime=0.f; bShiftKeyDown=false;
+	TargetingStatus=ETargetingStatus::NotTargeting;
+	LastActor=nullptr; ThisActor=nullptr;
+	Spline->ClearSplinePoints();
+	InitializeLocalInput();
+}
+
+void AMyPlayerController::InitializeLocalInput()
+{
+	if (!IsLocalController() || !GetLocalPlayer()) return;
 	check(PlayerContext);
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());		
 	if(Subsystem)
@@ -463,11 +486,7 @@ void AMyPlayerController::AbilityInputTagHeld(FGameplayTag InputTag)
 
 UMyAbilitySystemComponent* AMyPlayerController::GetASC()
 {
-	if (MyAbilitySystemComponent==nullptr)
-	{
-		MyAbilitySystemComponent = Cast< UMyAbilitySystemComponent>
-		(UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetPawn<APawn>()));
-	}
+	MyAbilitySystemComponent = Cast<UMyAbilitySystemComponent>(UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetPawn()));
 	return MyAbilitySystemComponent;
 }
 

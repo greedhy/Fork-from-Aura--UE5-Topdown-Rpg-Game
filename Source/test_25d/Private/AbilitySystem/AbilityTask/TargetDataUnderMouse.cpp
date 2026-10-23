@@ -3,6 +3,7 @@
 
 #include "AbilitySystem/AbilityTask/TargetDataUnderMouse.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystem/Ability/MyDamageGameplayAbility.h"
 #include "test_25d/test_25d.h"
 
 UTargetDataUnderMouse* UTargetDataUnderMouse::CreateTargetDataUnderMouse(UGameplayAbility* OwningAbility)
@@ -56,15 +57,23 @@ void UTargetDataUnderMouse::SendMouseCursorData()
 
 	if (ShouldBroadcastAbilityTaskDelegates())
 	{
+		if (auto* Attack = Cast<UMyDamageGameplayAbility>(Ability)) Attack->SetOffensiveAttackTarget(CursorHit.GetActor());
 		ValidData.Broadcast(DataHandle);
 	}
 }
 
 void UTargetDataUnderMouse::OnTargetDataReplicatedCallback(const FGameplayAbilityTargetDataHandle& DataHandle, FGameplayTag ApplicationTag)
 {
+	// Keep shared target data alive after consuming the ASC's cached handle.
+	const FGameplayAbilityTargetDataHandle LocalData = DataHandle;
 	AbilitySystemComponent->ConsumeClientReplicatedTargetData(GetAbilitySpecHandle(), GetActivationPredictionKey());
 	if (ShouldBroadcastAbilityTaskDelegates())
 	{
-		ValidData.Broadcast(DataHandle);
+		if (auto* Attack = Cast<UMyDamageGameplayAbility>(Ability))
+		{
+			const FHitResult* Hit = LocalData.Num() > 0 && LocalData.Get(0) ? LocalData.Get(0)->GetHitResult() : nullptr;
+			Attack->SetOffensiveAttackTarget(Hit ? Hit->GetActor() : nullptr);
+		}
+		ValidData.Broadcast(LocalData);
 	}
 }

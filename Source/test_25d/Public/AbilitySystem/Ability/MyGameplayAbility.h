@@ -16,6 +16,9 @@ class TEST_25D_API UMyGameplayAbility : public UGameplayAbility
 public:
 	UPROPERTY(EditDefaultsOnly,Category="Input")
 	FGameplayTag StartupInputTag;
+	// Toggle abilities use a single press routed to authority, never held activation.
+	virtual bool IsInputToggleAbility() const { return false; }
+    virtual bool ShouldCancelOnEquipChange() const { return IsInputToggleAbility(); }
 
 	virtual void InputPressed(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) override;
 	virtual void InputReleased(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) override;

@@ -15,6 +15,7 @@ class UAbilitySystemComponent;
 class UAttributeSet;
 class UBackpackComponent;
 class UBackpackItemDefinitions;
+class ULoadScreenSaveGame;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlayerStatChanged, int32 /*StatValue*/)
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnLevelChanged, int32 /*StatValue*/, bool /*bLevelUp*/)
@@ -72,6 +73,13 @@ public:
 	const FString& GetBackpackPersistencePlayerId() const { return BackpackPersistencePlayerId; }
 	virtual void CopyProperties(APlayerState* PlayerState) override;
 	virtual void OverrideWith(APlayerState* PlayerState) override;
+	int32 GetTravelPlayerSlot() const { return TravelPlayerSlot; }
+	void SetTravelPlayerSlot(int32 Slot) { TravelPlayerSlot = Slot; }
+	void SetTravelProgress(ULoadScreenSaveGame* Progress, float Health, float Mana);
+	ULoadScreenSaveGame* GetTravelProgress() const { return TravelProgress; }
+	float GetTravelHealth() const { return TravelHealth; }
+	float GetTravelMana() const { return TravelMana; }
+	void ClearTravelProgress() { TravelProgress = nullptr; }
 protected:
 	virtual void BeginPlay() override;
 
@@ -89,6 +97,15 @@ protected:
 
 
 private:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category="Travel", meta=(AllowPrivateAccess="true"))
+	int32 TravelPlayerSlot = INDEX_NONE;
+	UPROPERTY(Transient)
+	TObjectPtr<ULoadScreenSaveGame> TravelProgress;
+	UPROPERTY(Transient)
+	float TravelHealth = 0;
+	UPROPERTY(Transient)
+	float TravelMana = 0;
+
 	UPROPERTY(VisibleAnywhere,ReplicatedUsing=OnRep_Level)
 	int32 Level=1;
 

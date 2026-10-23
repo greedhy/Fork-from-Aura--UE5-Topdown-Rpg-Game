@@ -110,6 +110,7 @@ void UMyFireBolt::SpawnProjectiles(const FVector& ProjectileTargetLocation, cons
 {
 	const bool bIsServer = GetAvatarActorFromActorInfo()->HasAuthority();
 	if (!bIsServer) return;
+	ReportOffensiveAttack(HomingTarget);
 
 	const FVector SocketLocation = ICombatInterface::Execute_GetCombatSocketLocation(
 		GetAvatarActorFromActorInfo(),
@@ -128,14 +129,8 @@ void UMyFireBolt::SpawnProjectiles(const FVector& ProjectileTargetLocation, cons
 		SpawnTransform.SetLocation(SocketLocation);
 		SpawnTransform.SetRotation(Rot.Quaternion());
 
-		AMyProjectile* Projectile = GetWorld()->SpawnActorDeferred<AMyProjectile>(
-			ProjectileClass,
-			SpawnTransform,
-			GetOwningActorFromActorInfo(),
-			Cast<APawn>(GetOwningActorFromActorInfo()),
-			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-
-		Projectile->DamageEffectParams = MakeDamageEffectParamsFromClassDefaults();
+		AMyProjectile* Projectile = CreateProjectileDeferred(ProjectileClass, SpawnTransform);
+		if (!Projectile) continue;
 
 		if (HomingTarget && HomingTarget->Implements<UCombatInterface>())
 		{

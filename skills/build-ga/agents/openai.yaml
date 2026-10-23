@@ -1,0 +1,4 @@
+interface:
+  display_name: "GA 自动构建"
+  short_description: "依据项目现有 GAS 流程创建、配置、接入并验证 GameplayAbility"
+  default_prompt: "使用 $build-ga，根据我的需求完成本项目 GA 的实现、资产配置、接入与验证。"

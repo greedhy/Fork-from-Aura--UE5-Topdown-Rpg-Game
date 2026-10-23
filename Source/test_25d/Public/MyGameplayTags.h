@@ -72,6 +72,7 @@ public:
 	FGameplayTag Abilities_Fire_FireBlast;
 	FGameplayTag Abilities_Thunder_Electrocute;
 	FGameplayTag Abilities_Arcane_ArcaneShards;
+	FGameplayTag Abilities_Arcane_ArcaneNova;
 
 
 	FGameplayTag Abilities_HitReact;
@@ -88,12 +89,14 @@ public:
 	FGameplayTag Abilities_Passive_HaloOfProtection;
 	FGameplayTag Abilities_Passive_LifeSiphon;
 	FGameplayTag Abilities_Passive_ManaSiphon;
+	FGameplayTag Abilities_Passive_OrbitingFireBolt;
 
 	FGameplayTag Abilities_Passive_ListenForEvent;
 	//
 	FGameplayTag Cooldown_Fire_FireBolt;
 	FGameplayTag Cooldown_Thunder_Electrocute;
 	FGameplayTag Cooldown_Arcane_ArcaneShards;
+	FGameplayTag Cooldown_Arcane_ArcaneNova;
 
 	//
 
@@ -153,6 +156,7 @@ public:
 	FGameplayTag Player_Block_CursorTrace;
 	//
 	FGameplayTag GameplayCue_FireBlast;
+	FGameplayTag GameplayCue_ArcaneNova;
 private:
 	static FMyGameplayTags GameplayTags;
 };

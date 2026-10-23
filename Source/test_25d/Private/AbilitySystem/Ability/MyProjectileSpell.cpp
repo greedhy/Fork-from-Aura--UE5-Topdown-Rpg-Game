@@ -7,6 +7,16 @@
 #include "Interface/CombatInterface.h"
 #include"AbilitySystemComponent.h"
 #include"MyGameplayTags.h"
+
+AMyProjectile* UMyProjectileSpell::CreateProjectileDeferred(TSubclassOf<AMyProjectile> Class, const FTransform& Transform)
+{
+	AActor* Avatar = GetAvatarActorFromActorInfo();
+	if (!IsValid(Avatar) || !Avatar->HasAuthority() || !Class) return nullptr;
+	AMyProjectile* Projectile = GetWorld()->SpawnActorDeferred<AMyProjectile>(Class, Transform,
+		Avatar, Cast<APawn>(Avatar), ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Projectile) Projectile->DamageEffectParams = MakeDamageEffectParamsFromClassDefaults();
+	return Projectile;
+}
 void UMyProjectileSpell::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
                                          const FGameplayAbilityActorInfo* ActorInfo,
                                          const FGameplayAbilityActivationInfo ActivationInfo, 
@@ -41,15 +51,8 @@ void UMyProjectileSpell::SpawnProjectile(const FVector& ProjectileTargetLocation
 		}
 
 		//SpawnActorDeferred将异步创建实例，在实例创建完成时，相应的数据已经应用到了实例身上
-		AMyProjectile* Projectile = GetWorld()->SpawnActorDeferred<AMyProjectile>(
-			ProjectileClass,
-			SpawnTransform,
-			GetOwningActorFromActorInfo(),
-			Cast<APawn>(GetOwningActorFromActorInfo()),
-			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-
-
-		Projectile->DamageEffectParams = MakeDamageEffectParamsFromClassDefaults();
+		AMyProjectile* Projectile = CreateProjectileDeferred(ProjectileClass, SpawnTransform);
+		if (!Projectile) return;
 
 		//const UAbilitySystemComponent* SourceASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetAvatarActorFromActorInfo());
 		//const FGameplayEffectSpecHandle SpecHandle = SourceASC->MakeOutgoingSpec(DamageEffectClass, GetAbilityLevel(), SourceASC->MakeEffectContext());

@@ -5,9 +5,42 @@
 
 #include "AbilitySystemBlueprintLibrary.h"
 #include"AbilitySystemComponent.h"
+#include "AbilitySystem/MyAbilitySystemComponent.h"
+
+void UMyDamageGameplayAbility::SetOffensiveAttackTarget(AActor* TargetActor)
+{
+	OffensiveAttackTarget = TargetActor;
+	if (bAttackCommitted) ReportOffensiveAttack(TargetActor);
+}
+
+void UMyDamageGameplayAbility::ReportOffensiveAttack(AActor* TargetActor)
+{
+	OffensiveAttackTarget = TargetActor;
+	if (!bAttackCommitted || !IsActive() || !CurrentActorInfo || !CurrentActorInfo->IsNetAuthority()) return;
+	if (auto* ASC = Cast<UMyAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+		ASC->NotifyOffensiveAttack(this, TargetActor);
+}
+
+void UMyDamageGameplayAbility::CommitExecute(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo)
+{
+	Super::CommitExecute(Handle, ActorInfo, ActivationInfo);
+	bAttackCommitted = true;
+	ReportOffensiveAttack(OffensiveAttackTarget.Get());
+}
+
+void UMyDamageGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
+	bool bReplicateEndAbility, bool bWasCancelled)
+{
+	bAttackCommitted = false;
+	OffensiveAttackTarget.Reset();
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
 
 void UMyDamageGameplayAbility::CauseDamage(AActor* TargetActor)
 {
+	ReportOffensiveAttack(TargetActor);
 	FGameplayEffectSpecHandle DamageSpecHandle = MakeOutgoingGameplayEffectSpec(DamageEffectClass, 1.f);
 	//通过SetByCaller设置属性伤害
 	

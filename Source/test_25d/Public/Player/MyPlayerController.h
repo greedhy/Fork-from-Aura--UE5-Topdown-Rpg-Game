@@ -37,6 +37,8 @@ class TEST_25D_API AMyPlayerController : public APlayerController
 public:
 	AMyPlayerController();
 	virtual void PlayerTick(float DeltaTime) override;
+	virtual void ReceivedPlayer() override;
+	virtual void AcknowledgePossession(APawn* P) override;
 
 	UFUNCTION(Client,Reliable)
 	void ShowDamageNumber(float DamageAccount,ACharacter* TargetCharacter, bool bBlockHit, bool bCriticalHit);
@@ -82,6 +84,7 @@ protected:
 	virtual void SetupInputComponent() override;
 
 private:
+	void InitializeLocalInput();
 	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputMappingContext> PlayerContext;
 

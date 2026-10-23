@@ -13,6 +13,7 @@
 #include "BaseCharacter.generated.h"
 
 class UPassiveNiagaraComponent;
+class UTerrainStatusComponent;
 class UDebuffNiagaraComponent;
 class UAbilitySystemComponent;	
 class UAttributeSet;	
@@ -83,6 +84,12 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	float BaseWalkSpeed = 600.f;
+
+	UFUNCTION(BlueprintCallable, Category="Movement")
+	void RefreshMovementSpeed();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Terrain")
+	TObjectPtr<UTerrainStatusComponent> TerrainStatus;
 
 	virtual void StunTagChanged(const FGameplayTag CallbackTag, int32 NewCount);
 	void SetCharacterClass(ECharacterClass InClass) { CharacterClass = InClass; }

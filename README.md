@@ -4,6 +4,8 @@
 
 该项目是基于GAS编写的地牢风格RPG游戏，俯视角模式，支持网络同步。
 
+新增能力制作记录：[奥术新星（Arcane Nova）——设计、MCP 制作、验证与完整调用流程](docs/2026-10-21-arcane-nova-guide.md)。
+
 **<font style="color:rgb(24, 25, 28);">原始链接：</font>**
 
 [Just a moment...](https://www.udemy.com/course/unreal-engine-5-gas-top-down-rpg/?couponCode=IND21PM)
