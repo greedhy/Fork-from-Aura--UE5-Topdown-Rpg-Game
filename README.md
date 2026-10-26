@@ -4,7 +4,7 @@
 
 基础角色、GAS 框架与课程素材来自原项目；下文重点展示在此基础上完成的扩展工作。
 
-[快速试玩](#快速试玩) · [Mass 实现](#mass-怪物与混合战斗) · [技能系统](#ga-原型与组合技能) · [开发文档](#开发文档)
+[快速试玩](#快速试玩) · [主要功能清单](docs/project-feature-catalog.md) · [GA 制作与调用全流程](docs/ga-production-and-runtime-guide.md) · [Mass 实现](#mass-怪物与混合战斗) · [开发文档](#开发文档)
 
 ![地牢迷宫中的 Mass Goblin 与 Actor 玩家](docs/images/mass-goblins.png)
 
@@ -21,6 +21,26 @@
 | 联机流程 | 存档后选择单人 / 多人、LAN 密码房间、房主开始后全员进入关卡、组队传送与可配置出生点 |
 | 地形效果 | 岩浆灼烧、冰霜减速、毒性中毒、藤蔓缠绕，以及对应地表材质与 Niagara 表现 |
 | 自动化工具 | 项目专用 `build-ga` skill、Unreal Python / MCP 资产制作流程、原生测试与双客户端 PIE 验证脚本 |
+
+## 当前主要功能一览
+
+以下包含沿用的基础能力与本项目扩展；详细源码入口、技能清单和适用地图见[完整功能清单](docs/project-feature-catalog.md)。
+
+| 模块 | 已实现功能 |
+|---|---|
+| 角色与控制 | Actor 玩家、鼠标寻路 / WASD、目标高亮、待机 / 移动动画、施法目标指示 |
+| GAS 战斗与成长 | 属性、生命 / 法力、消耗 / 冷却、抗性 / 护甲 / 格挡 / 暴击、受击 / 死亡 / 经验、等级与加点 |
+| 敌人 | 既有 Actor 敌人与 AI、近战 / 远程 / 召唤技能资产，以及纯 Mass 普通怪物 |
+| Mass 与混合战斗 | 实体数据、空间索引、导航 / 移动 / 碰撞、共享骨骼渲染、快照复制、Actor / Mass 技能目标、伤害数字 |
+| GA 与组合 | 18 个基础行为、3 个新机制、14 个组合 GA，以及奥术新星和开关式环绕火球；另保留原有课程技能 |
+| 技能管理 | 初始授予、学习 / 升级 / 装备、主动 / 被动槽、原型菜单、图标 / 描述、中文显示适配 |
+| 背包与拾取 | 数据驱动物品、堆叠、交换、消耗品 GE、整组丢弃、自动 / 交互拾取、网络复制与服务端本地持久化 |
+| 存档与换图 | 存档槽、角色属性与技能、检查点及可保存世界 Actor、组队换图后的技能栏恢复 |
+| 模式与房间 | 单人 / 多人选择、LAN 密码创建 / 匹配、成员列表、房主全员开局、离开与错误提示 |
+| 组队传送 | 全员进区持续 3 秒换图，按目标地图配置集中 / 分散出生 |
+| 地形 | 岩浆灼烧、冰霜减速、毒性持续伤害、藤蔓缠绕、地表材质与特效；泥潭为视觉资源 |
+| 关卡与测试 | 地牢迷宫、200 Goblin、地形测试场、技能实验场；Mass 新会话 999 技能点 |
+| 工具与验证 | build-ga、MCP / Python 资产制作、原生测试、双客户端输入 / 战斗 / UI / 换图验证 |
 
 ## Mass 怪物与混合战斗
 
@@ -64,6 +84,21 @@
 第五批组合技能分别验证了 Actor 与 Mass 目标路径，包含服务端消耗、命中、状态、位移和客户端表现。运行时设置节点数量、深度、地表与印记预算，并处理死亡、换图和显式取消时的清理。
 
 此外实现了 **奥术新星** 与 **环绕火球**：环绕火球作为可切换技能，开启消耗 10 MP，持续每秒消耗 1 MP，每 3 秒补充一个火球，默认上限 3 个；释放主动技能后火球依次攻击目标，参数由数据资产调整。
+
+## GA 从制作到调用
+
+完整操作、资产关系、调用图和源码入口见 [GA 制作与调用全流程](docs/ga-production-and-runtime-guide.md)。
+
+1. **定义规则**：明确主动 / 开关 / 被动、目标、伤害、MP / 冷却、持续与取消、表现和联机范围。
+2. **选择实现**：传统 Actor GA、前四批混合原型或第五批扩展节点；编写新逻辑时先构建并加载原生类型。
+3. **制作资产**：用 build-ga 与 MCP / Unreal Python 配置子 DA、根 DA、GA、标签、GE / 表现引用；编译保存并独立读回。
+4. **接入游戏**：登记正确技能目录，连接菜单学习 / 装备、角色授予、输入槽和存档；新技能默认不抢占已有槽位。
+5. **输入与目标**：Enhanced Input → PlayerController → ASC 按 InputTag 找 Spec → TryActivateAbility；混合鼠标任务上传 Actor 或 Mass 实体 ID，由服务器复核。
+6. **提交与执行**：服务端 Commit 一次、创建施法上下文与运行节点；命中后 Actor 走 GE / ExecCalc，Mass 走实体伤害接口，子节点不重复扣蓝。
+7. **表现与收尾**：通过 Cue、复制的效果 Actor、GAS 蒙太奇或 Mass 实例状态驱动各端表现；结束、取消、死亡和换图各自清理。
+8. **验收**：检查资产、核心行为、双客户端实际输入、Actor / Mass 目标、菜单、存档与换图；把报告接收和实际通过区分开。
+
+例如已实现的三重焰印：`GA_EmberBrand → Projectile 根节点 → HitChild: Stack → 三层后 CompleteChild: Burst`。技能自身提交后结束，印记和爆炸由运行时继续管理；已完成施法的持续效果需通过专用取消接口清理。
 
 ## 联机、地形与关卡
 
@@ -117,6 +152,7 @@
 
 ## 开发文档
 
+- **总览与流程**：[主要功能清单](docs/project-feature-catalog.md) · [GA 制作与调用全流程](docs/ga-production-and-runtime-guide.md)
 - **Mass**：[实现架构](docs/2026-10-23-pure-mass-guide.md) · [200 Goblin 关卡](docs/2026-10-23-labyrinth-mass-200.md) · [混合目标适配](docs/2026-10-23-mixed-mass-actor-skills.md) · [玩家动画边界](docs/2026-10-23-player-animation-and-mass-boundary.md) · [原 FireBolt 适配](docs/2026-10-23-legacy-firebolt-mass-fix.md)
 - **技能**：[基础原型](docs/2026-10-22-ga-prototypes-guide.md) · [组合技能](docs/2026-10-22-ga-compositions-guide.md) · [第三批](docs/2026-10-22-ga-prototypes-batch3-guide.md) · [第四批](docs/2026-10-23-ga-prototypes-batch4-guide.md) · [第五批](docs/2026-10-25-ga-batch5-guide.md)
 - **独立能力**：[奥术新星](docs/2026-10-21-arcane-nova-guide.md) · [环绕火球](docs/2026-10-21-orbiting-fire-bolt-guide.md)
