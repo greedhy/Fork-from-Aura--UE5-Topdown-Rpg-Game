@@ -122,6 +122,12 @@ def main():
         pc_cdo.set_editor_property('mass_'+key,pc_cdo.get_editor_property(key))
     u.BlueprintEditorLibrary.compile_blueprint(pc); save(pc)
     pawn,pawn_cdo=copy_bp('/Game/BluePrints/Characters/Player/BP_Player','BP_MassPlayer',u.PureMassPlayerCharacter)
+    # The original AnimBP casts to BP_Player, a sibling of this copied Blueprint.
+    # Preserve the isolated, class-retargeted AnimBP when refreshing sandbox assets.
+    mass_anim=folder+'/ABP_MassPlayer'
+    if u.EditorAssetLibrary.does_asset_exist(mass_anim):
+        pawn_cdo.get_component_by_class(u.SkeletalMeshComponent).set_editor_property(
+            'anim_class',u.load_class(None,mass_anim+'.ABP_MassPlayer_C'))
     loadout=[]
     for kind,key in [('Projectile','LMB'),('Burst','1'),('Homing','2'),('Chain','3'),('Orbit','4'),('Beam','RMB')]:
         bp=u.load_asset(folder+'/Abilities/GA_Prototype_'+kind)

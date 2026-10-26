@@ -11,6 +11,7 @@
 class UMassEntitySubsystem;
 class APawn;
 class ATerrainSurface;
+class AMyProjectile;
 
 UCLASS()
 class TEST_25D_API UPureMassSubsystem : public UWorldSubsystem
@@ -37,11 +38,14 @@ public:
 private:
     bool IsAuthority() const;
     void Publish(const FPureMassFragment& Fragment);
-    float DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source);
-    float EvaluateDamage(const FPureMassFragment& Fragment, const FPureMassDamage& Damage) const;
+    float DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source, bool bBlocked = false, bool bCritical = false);
+    float EvaluateDamage(const FPureMassFragment& Fragment, const FPureMassDamage& Damage, bool& bBlocked, bool& bCritical) const;
     void AttackPlayer(FPureMassFragment& Fragment, APawn* Player);
     float UpdateTerrain(FPureMassFragment& Fragment);
     void Move(FPureMassFragment& Fragment, FVector Delta);
+    void AdaptLegacyProjectile(AActor* Actor);
+    FDelegateHandle ProjectileSpawnHandle;
+    UPROPERTY(Transient) TSubclassOf<AMyProjectile> LegacyFireBoltClass;
     UPROPERTY(Transient) TObjectPtr<UMassEntitySubsystem> Mass;
     UPROPERTY(Transient) TArray<TObjectPtr<UPureMassMonsterType>> RetainedTypes;
     UPROPERTY(Transient) TMap<int32, FPureMassView> Views;

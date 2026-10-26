@@ -1,5 +1,9 @@
 #include "PureMass/PureMassSubsystem.h"
 #include "PureMass/PureMassIncomingDamageEffect.h"
+#include "PureMass/PureMassPlayerController.h"
+#include "PureMass/PureMassLegacyProjectile.h"
+#include "Actor/MyProjectile.h"
+#include "test_25d/test_25d.h"
 #include "MassEntitySubsystem.h"
 #include "MassEntityManager.h"
 #include "MassCommandBuffer.h"
@@ -69,6 +73,19 @@ void UPureMassSubsystem::Enable()
         Archetype = Mass->GetMutableEntityManager().CreateArchetype(Fragments);
     }
     bEnabled = true;
+    LegacyFireBoltClass = LoadClass<AMyProjectile>(nullptr,
+        TEXT("/Game/BluePrints/AbilitySystem/Player/Ability/Fire/FireBolt/BP_FireBolt.BP_FireBolt_C"));
+    ProjectileSpawnHandle = GetWorld()->AddOnActorSpawnedHandler(
+        FOnActorSpawned::FDelegate::CreateUObject(this, &ThisClass::AdaptLegacyProjectile));
+}
+void UPureMassSubsystem::AdaptLegacyProjectile(AActor* Actor)
+{
+    // Explicit allow-list: orbiting and other specialised projectiles have their own lifecycle.
+    if (!bEnabled || !LegacyFireBoltClass || Actor->GetClass() != LegacyFireBoltClass
+        || Actor->FindComponentByClass<UPureMassLegacyProjectile>()) return;
+    auto* Adapter = NewObject<UPureMassLegacyProjectile>(Actor);
+    Actor->AddInstanceComponent(Adapter);
+    Adapter->RegisterComponent();
 }
 int32 UPureMassSubsystem::SpawnMonster(UPureMassMonsterType* Type, FVector Location, FName Room)
 {
@@ -177,8 +194,9 @@ FMassEntityHandle UPureMassSubsystem::GetEntity(int32 Id) const
     const FMassEntityHandle* Handle = Entities.Find(Id);
     return Handle ? *Handle : FMassEntityHandle();
 }
-float UPureMassSubsystem::EvaluateDamage(const FPureMassFragment& Fragment, const FPureMassDamage& Damage) const
+float UPureMassSubsystem::EvaluateDamage(const FPureMassFragment& Fragment, const FPureMassDamage& Damage, bool& bBlocked, bool& bCritical) const
 {
+    bBlocked = bCritical = false;
     const UPureMassMonsterType* Type = Fragment.Type.Get();
     if (!Type) return 0;
     UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Damage.Source.Get());
@@ -189,12 +207,14 @@ float UPureMassSubsystem::EvaluateDamage(const FPureMassFragment& Fragment, cons
     if (Damage.DamageType != FMyGameplayTags::Get().Damage_Pure)
         if (const float* Resistance = Type->Resistances.Find(Damage.DamageType))
             Value *= 1.f - FMath::Clamp(FinitePositive(*Resistance), 0.f, 100.f)*.01f;
-    if (FMath::FRand()*100.f < FMath::Clamp(FinitePositive(Type->BlockChance), 0.f, 100.f)) Value *= .5f;
+    bBlocked = FMath::FRand()*100.f < FMath::Clamp(FinitePositive(Type->BlockChance), 0.f, 100.f);
+    if (bBlocked) Value *= .5f;
     const float ArmorCoefficient = BalanceCurve(this, TEXT("EffectiveArmor"), Type->Level, 1.f);
     // Legacy ExecCalc currently uses EffectiveArmor for critical resistance too; preserve its balance.
     const float CriticalChance = Attribute(ASC, UMyAttributeSet::GetCriticalHitChanceAttribute())
         - FinitePositive(Type->CriticalResistance)*ArmorCoefficient;
-    if (FMath::FRand()*100.f < FMath::Clamp(CriticalChance, 0.f, 100.f))
+    bCritical = FMath::FRand()*100.f < FMath::Clamp(CriticalChance, 0.f, 100.f);
+    if (bCritical)
         Value *= 1.f + Attribute(ASC, UMyAttributeSet::GetCriticalHitDamageAttribute())*.01f;
     const float Penetration = FMath::Clamp(Attribute(ASC, UMyAttributeSet::GetArmorPeneAttribute()), 0.f, 100.f);
     // Read the legacy source curve as part of the balance contract; legacy code does not apply this coefficient.
@@ -202,12 +222,19 @@ float UPureMassSubsystem::EvaluateDamage(const FPureMassFragment& Fragment, cons
     const float EffectiveArmor = FinitePositive(Type->Armor)*(1.f - Penetration*.01f);
     return FinitePositive(Value * FMath::Clamp(1.f - EffectiveArmor*ArmorCoefficient*.01f, 0.f, 1.f));
 }
-float UPureMassSubsystem::DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source)
+float UPureMassSubsystem::DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source, bool bBlocked, bool bCritical)
 {
     if (Fragment.Health <= 0) return 0;
     const float Removed = FMath::Min(Fragment.Health, FinitePositive(Amount));
     if (Removed <= 0) return 0;
     Fragment.Health -= Removed;
+    if (IsValid(Source))
+    {
+        const auto* Pawn = Cast<APawn>(Source);
+        auto* PC = Cast<APureMassPlayerController>(Pawn ? Pawn->GetController() : Source->GetInstigatorController());
+        if (PC && PC->GetWorld() == GetWorld())
+            PC->QueueMassDamageNumber(Fragment.Id, Fragment.Location, Removed, bBlocked, bCritical);
+    }
     if (Fragment.Health > 0) { Publish(Fragment); return Removed; }
     Fragment.State = 3; Fragment.Velocity = FVector::ZeroVector;
     const int32 Id = Fragment.Id;
@@ -240,7 +267,9 @@ float UPureMassSubsystem::ApplyDamage(int32 Id, const FPureMassDamage& Damage)
         Fragment.StatusSource = Damage.Source;
         if (Damage.bRoot) Fragment.RootRemaining = FMath::Max(Fragment.RootRemaining, Damage.StatusDuration);
     }
-    return DamageFragment(Fragment, EvaluateDamage(Fragment, Damage), Damage.Source.Get());
+    bool bBlocked = false, bCritical = false;
+    const float Evaluated = EvaluateDamage(Fragment, Damage, bBlocked, bCritical);
+    return DamageFragment(Fragment, Evaluated, Damage.Source.Get(), bBlocked, bCritical);
 }
 
 bool UPureMassSubsystem::BeginUpdate(float DeltaSeconds)
@@ -351,16 +380,19 @@ void UPureMassSubsystem::Move(FPureMassFragment& Fragment, FVector Delta)
     const UPureMassMonsterType* Type = Fragment.Type.Get();
     if (!Type || Delta.IsNearlyZero()) return;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(PureMassMovement), false);
+    // Spell volumes are hit queries, never obstacles that depenetrate a monster capsule.
+    FCollisionResponseParams Responses;
+    Responses.CollisionResponse.SetResponse(ECC_Projectile, ECR_Ignore);
     FCollisionShape Shape = FCollisionShape::MakeCapsule(Type->Radius, Type->HalfHeight);
     FVector Position = Fragment.Location;
     FHitResult Hit;
-    if (GetWorld()->SweepSingleByChannel(Hit, Position, Position + Delta, FQuat::Identity, ECC_Pawn, Shape, Params))
+    if (GetWorld()->SweepSingleByChannel(Hit, Position, Position + Delta, FQuat::Identity, ECC_Pawn, Shape, Params, Responses))
     {
         if (Hit.bStartPenetrating) Position += Hit.Normal * (Hit.PenetrationDepth + .5f);
         else Position += Delta * FMath::Max(0.f, Hit.Time - .001f);
         const FVector Slide = FVector::VectorPlaneProject(Delta * (1.f - Hit.Time), Hit.Normal);
         FHitResult SlideHit;
-        if (GetWorld()->SweepSingleByChannel(SlideHit, Position, Position + Slide, FQuat::Identity, ECC_Pawn, Shape, Params))
+        if (GetWorld()->SweepSingleByChannel(SlideHit, Position, Position + Slide, FQuat::Identity, ECC_Pawn, Shape, Params, Responses))
             Position += Slide * FMath::Max(0.f, SlideHit.Time - .001f);
         else Position += Slide;
     }
@@ -368,12 +400,12 @@ void UPureMassSubsystem::Move(FPureMassFragment& Fragment, FVector Delta)
     // Keep capsule bottoms on walkable world geometry without owning a movement component.
     FHitResult Ground;
     const FVector Foot = Position - FVector(0,0,Type->HalfHeight);
-    if (GetWorld()->LineTraceSingleByChannel(Ground, Foot + FVector(0,0,45), Foot - FVector(0,0,90), ECC_WorldStatic, Params)
+    if (GetWorld()->LineTraceSingleByChannel(Ground, Foot + FVector(0,0,45), Foot - FVector(0,0,90), ECC_WorldStatic, Params, Responses)
         && Ground.Normal.Z >= .65f)
     {
         const FVector Grounded(Position.X, Position.Y, Ground.ImpactPoint.Z + Type->HalfHeight + 1.f);
         FHitResult Vertical;
-        if (!GetWorld()->SweepSingleByChannel(Vertical, Position, Grounded, FQuat::Identity, ECC_Pawn, Shape, Params)) Position = Grounded;
+        if (!GetWorld()->SweepSingleByChannel(Vertical, Position, Grounded, FQuat::Identity, ECC_Pawn, Shape, Params, Responses)) Position = Grounded;
         else if (!Vertical.bStartPenetrating) Position += (Grounded - Position) * Vertical.Time;
     }
     Fragment.Velocity = (Position - Fragment.Location) / FMath::Max(DeltaTime, UE_SMALL_NUMBER);
@@ -504,6 +536,9 @@ void UPureMassSubsystem::FinishUpdate()
 }
 void UPureMassSubsystem::Deinitialize()
 {
+    if (ProjectileSpawnHandle.IsValid()) GetWorld()->RemoveOnActorSpawnedHandler(ProjectileSpawnHandle);
+    ProjectileSpawnHandle.Reset();
+    LegacyFireBoltClass = nullptr;
     bEnabled = false;
     // Mass owns destruction. World teardown can destroy its manager before this subsystem.
     Mass = nullptr; Archetype = FMassArchetypeHandle();

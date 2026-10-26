@@ -1,10 +1,11 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "AbilitySystem/Prototypes/PrototypeAbility.h"
+#include "PureMass/PureMassCombatTarget.h"
 #include "PureMassAbility.generated.h"
 class APureMassRuntime;
 
-/** Player ASC is retained; enemies are addressed exclusively through stable Mass IDs. */
+/** Player GAS ability with a common target path for Mass entities and Actor/ASC combatants. */
 UCLASS()
 class TEST_25D_API UPureMassAbility : public UPrototypeAbility
 {
@@ -19,6 +20,7 @@ public:
     static bool SpendMana(AActor* Caster, float Amount);
     /** Validates a client request against authoritative entity state and world geometry. */
     static bool ValidateTarget(AActor* Caster, const UAbilityPrototype* Config, int32 Id, const FVector& Requested, FVector& Resolved);
+    static bool ValidateCombatTarget(AActor* Caster, const UAbilityPrototype* Config, const FPureMassCombatTarget& Target, const FVector& Requested, FVector& Resolved);
 private:
     UPROPERTY() TObjectPtr<APureMassRuntime> MassRuntime;
     FTimerHandle MassTargetTimeout;
@@ -27,7 +29,7 @@ private:
     UFUNCTION() void Released(float HeldTime);
     UFUNCTION() void RuntimeDestroyed(AActor* Actor);
     void AbortMass();
-    void ExecuteMass(const FVector& Point, int32 Id);
+    void ExecuteMass(const FVector& Point, FPureMassCombatTarget Target);
 };
 
 /** Native definition remains network-addressable; each application carries its own cost magnitude. */

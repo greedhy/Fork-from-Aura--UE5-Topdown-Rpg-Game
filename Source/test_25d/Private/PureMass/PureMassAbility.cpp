@@ -72,25 +72,26 @@ void UPureMassAbility::ActivateAbility(FGameplayAbilitySpecHandle Handle, const 
 
 bool UPureMassAbility::ValidateTarget(AActor* Caster, const UAbilityPrototype* Config, int32 Id, const FVector& Requested, FVector& Resolved)
 {
-    if (!IsValid(Caster) || !Caster->HasAuthority() || !Config || Requested.ContainsNaN() || Id < INDEX_NONE) return false;
-    auto* Mass = Caster->GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (!Mass) return false;
+    return ValidateCombatTarget(Caster, Config, FPureMassCombatTarget(Id), Requested, Resolved);
+}
+
+bool UPureMassAbility::ValidateCombatTarget(AActor* Caster, const UAbilityPrototype* Config, const FPureMassCombatTarget& Target,
+    const FVector& Requested, FVector& Resolved)
+{
+    if (!IsValid(Caster) || !Caster->HasAuthority() || !Config || Requested.ContainsNaN()
+        || Target.EntityId < INDEX_NONE || Target.EntityId == 0 || (Target.IsActor() && Target.EntityId != INDEX_NONE)) return false;
     Resolved = Requested;
-    if (Id != INDEX_NONE)
+    if (Target.IsSet())
     {
-        FPureMassView View;
-        if (!Mass->Resolve(Id, View) || View.Health <= 0.f || View.State == 3) return false;
+        if (!PureMassCombat::Resolve(Caster->GetWorld(), Caster, Target, Resolved)) return false;
         // Prevent a valid ID from smuggling an unrelated aim point; allow snapshot interpolation error.
-        if (FVector::DistSquared(Requested, View.Location) > FMath::Square(250.f)) return false;
-        Resolved = View.Location;
+        if (FVector::DistSquared(Requested, Resolved) > FMath::Square(250.f)) return false;
     }
     if (FVector::DistSquared(Caster->GetActorLocation(), Resolved) > FMath::Square(Config->Range)) return false;
     using K = EAbilityPrototypeKind;
-    if ((Config->Kind == K::Beam || Config->Kind == K::Homing || Config->Kind == K::Chain) && Id == INDEX_NONE) return false;
-    FHitResult Wall;
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(PureMassValidate), false, Caster);
-    const bool bWall = Caster->GetWorld()->LineTraceSingleByChannel(Wall, Caster->GetActorLocation() + FVector(0,0,30), Resolved, ECC_Visibility, Query);
-    return !bWall || (Id == INDEX_NONE && FVector::DistSquared(Wall.ImpactPoint, Resolved) <= FMath::Square(15.f));
+    if ((Config->Kind == K::Beam || Config->Kind == K::Homing || Config->Kind == K::Chain) && !Target.IsSet()) return false;
+    if (Target.IsSet()) return PureMassCombat::Visible(Caster->GetWorld(), Caster, Caster->GetActorLocation()+FVector(0,0,30), Target);
+    return PureMassCombat::GroundVisible(Caster->GetWorld(), Caster, Caster->GetActorLocation() + FVector(0,0,30), Resolved);
 }
 
 void UPureMassAbility::TargetReady(const FGameplayAbilityTargetDataHandle& Data)
@@ -104,12 +105,14 @@ void UPureMassAbility::TargetReady(const FGameplayAbilityTargetDataHandle& Data)
     }
     const FHitResult* Hit = Data.Num() == 1 && Data.Get(0) ? Data.Get(0)->GetHitResult() : nullptr;
     FVector Point;
-    if (!Hit || !Hit->bBlockingHit || Hit->GetActor() || !ValidateTarget(GetAvatarActorFromActorInfo(), Prototype, Hit->Item, Hit->ImpactPoint, Point))
+    if (!Hit || !Hit->bBlockingHit || (Hit->GetActor() && Hit->Item != INDEX_NONE)) { AbortMass(); return; }
+    const auto Target = Hit->GetActor() ? FPureMassCombatTarget::FromActor(Hit->GetActor()) : FPureMassCombatTarget(Hit->Item);
+    if (!ValidateCombatTarget(GetAvatarActorFromActorInfo(), Prototype, Target, Hit->ImpactPoint, Point))
     { AbortMass(); return; }
-    ExecuteMass(Point, Hit->Item);
+    ExecuteMass(Point, Target);
 }
 
-void UPureMassAbility::ExecuteMass(const FVector& Point, int32 Id)
+void UPureMassAbility::ExecuteMass(const FVector& Point, FPureMassCombatTarget Target)
 {
     if (bTargetConsumed || !IsActive() || !CurrentActorInfo->IsNetAuthority()) return;
     bTargetConsumed = true;
@@ -118,6 +121,7 @@ void UPureMassAbility::ExecuteMass(const FVector& Point, int32 Id)
     FVector Origin = Point;
     using K = EAbilityPrototypeKind;
     if (Prototype->Kind == K::Surface && !APrototypeRuntime::ProjectSurfaceToGround(Avatar, Point, Origin)) { AbortMass(); return; }
+    SetOffensiveAttackTarget(Target.Actor.Get());
     if (!CanActivateAbility(CurrentSpecHandle, CurrentActorInfo) || !CommitAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo))
     { AbortMass(); return; }
     auto* Context = NewObject<UPrototypeCastContext>(Avatar);
@@ -129,12 +133,12 @@ void UPureMassAbility::ExecuteMass(const FVector& Point, int32 Id)
     if (Prototype->Kind == K::Projectile || Prototype->Kind == K::Multishot || Prototype->Kind == K::Homing || Prototype->Kind == K::Piercing || Prototype->Kind == K::Returning)
     {
         Origin = Avatar->GetActorLocation() + FVector(0,0,30);
-        Direction = (Point + (Id == INDEX_NONE ? FVector(0,0,30) : FVector::ZeroVector) - Origin).GetSafeNormal(SMALL_NUMBER, Direction);
+        Direction = (Point + (!Target.IsSet() ? FVector(0,0,30) : FVector::ZeroVector) - Origin).GetSafeNormal(SMALL_NUMBER, Direction);
     }
     if (Prototype->Kind == K::Cone || Prototype->Kind == K::Line || Prototype->Kind == K::Chain) Origin = Avatar->GetActorLocation();
-    MassRuntime = APureMassRuntime::Spawn(Context, Prototype, Origin, Direction, Id);
+    MassRuntime = APureMassRuntime::Spawn(Context, Prototype, Origin, Direction, Target);
     if (!IsValid(MassRuntime)) { AbortMass(); return; }
-    if (Prototype->Kind != K::Orbit) APureMassRuntime::NotifyCommittedAttack(Avatar, this, Id);
+    if (Prototype->Kind != K::Orbit) APureMassRuntime::NotifyCommittedAttack(Avatar, this, Target);
     if (Prototype->Kind == K::Beam || Prototype->Kind == K::Orbit)
         MassRuntime->OnDestroyed.AddDynamic(this, &ThisClass::RuntimeDestroyed);
     else

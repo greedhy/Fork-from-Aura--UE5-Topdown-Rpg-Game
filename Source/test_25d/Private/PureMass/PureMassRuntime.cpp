@@ -4,6 +4,9 @@
 #include "AbilitySystem/Prototypes/PrototypeRuntime.h"
 #include "AbilitySystem/Data/OrbitingFireBoltConfig.h"
 #include "AbilitySystem/Ability/MyDamageGameplayAbility.h"
+#include "AbilitySystem/MyAbilitySystemLibrary.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Terrain/TerrainSurface.h"
@@ -27,11 +30,12 @@ APureMassRuntime::APureMassRuntime()
 }
 
 APureMassRuntime* APureMassRuntime::Spawn(UPrototypeCastContext* InContext, UAbilityPrototype* Config,
-    FVector Position, FVector InDirection, int32 Id, int32 InDepth, bool bInSingle)
+    FVector Position, FVector InDirection, FPureMassCombatTarget InTarget, int32 InDepth, bool bInSingle)
 {
     AActor* Caster = InContext ? InContext->Caster.Get() : nullptr;
     if (!IsValid(Caster) || !Caster->HasAuthority() || !Config || !Config->IsValidConfiguration()
         || Position.ContainsNaN() || InDirection.ContainsNaN()) return nullptr;
+    if (Caster->Implements<UCombatInterface>() && ICombatInterface::Execute_IsDead(Caster)) return nullptr;
     if (Config->Kind == EAbilityPrototypeKind::Surface && !APrototypeRuntime::ProjectSurfaceToGround(Caster, Position, Position)) return nullptr;
     if (!InContext->ReserveSpawn(InDepth)) return nullptr;
     InDirection = InDirection.GetSafeNormal(SMALL_NUMBER, FVector::ForwardVector);
@@ -43,7 +47,7 @@ APureMassRuntime* APureMassRuntime::Spawn(UPrototypeCastContext* InContext, UAbi
     R->Prototype = Config;
     R->Direction = InDirection;
     R->ChainOrigin = Position;
-    R->TargetId = Id;
+    R->Target = InTarget;
     R->Depth = InDepth;
     R->bSingle = bInSingle;
     R->BeamEnd = Position + InDirection * Config->Range;
@@ -94,73 +98,88 @@ void APureMassRuntime::BeginPlay()
     }
 }
 
-bool APureMassRuntime::Visible(FVector Origin, FVector Point) const
+bool APureMassRuntime::Visible(FVector Origin, const FPureMassCombatTarget& Candidate) const
 {
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(PureMassLOS), false, GetOwner());
-    Query.AddIgnoredActor(this);
-    FHitResult Wall;
-    return !GetWorld()->LineTraceSingleByChannel(Wall, Origin, Point, ECC_Visibility, Query);
+    return PureMassCombat::Visible(GetWorld(), GetOwner(), Origin, Candidate, const_cast<APureMassRuntime*>(this));
 }
 
-bool APureMassRuntime::Hit(int32 Id, float Scale)
+bool APureMassRuntime::Hit(FPureMassCombatTarget Candidate, float Scale)
 {
-    if (!HasAuthority() || !Context || Context->bCancelled || bFinished) return false;
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    FPureMassView View;
-    if (!Mass || !Mass->Resolve(Id, View)) return false;
-    FPureMassDamage Damage;
-    Damage.Source = Context->Caster;
-    Damage.Amount = Prototype->DamageAtLevel(Context->Level) * Scale;
-    Damage.DamageType = Prototype->DamageType;
-    const auto& Params = Context->DamageParams;
-    if (Params.DebuffChance > 0.f && FMath::FRandRange(0.f,100.f) < Params.DebuffChance)
+    if (!HasAuthority() || !Context || Context->bCancelled || bFinished || !Prototype) return false;
+    AActor* Caster = Context->Caster.Get();
+    if (!IsValid(Caster) || (Caster->Implements<UCombatInterface>() && ICombatInterface::Execute_IsDead(Caster))) return false;
+    FVector Position;
+    if (!PureMassCombat::Resolve(GetWorld(), Context->Caster.Get(), Candidate, Position)) return false;
+    if (Candidate.IsActor())
     {
-        Damage.StatusDuration = Params.DebuffDuration;
-        Damage.DamagePerSecond = Params.DebuffDamage / FMath::Max(.1f, Params.DebuffFrequency);
+        FDamageEffectParams Params = Context->DamageParams;
+        Params.WorldContextObject = this;
+        Params.TargetAbilitySystemComponent = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Candidate.Actor.Get());
+        if (!IsValid(Params.SourceAbilitySystemComponent))
+            Params.SourceAbilitySystemComponent = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Context->Caster.Get());
+        if (!IsValid(Params.SourceAbilitySystemComponent) || !IsValid(Params.TargetAbilitySystemComponent)
+            || !Params.DamageGameplayEffectClass) return false;
+        if (Params.SourceAbilitySystemComponent->GetAvatarActor() != Context->Caster.Get()
+            || Params.SourceAbilitySystemComponent->GetWorld() != GetWorld()) return false;
+        Params.BaseDamage = Prototype->DamageAtLevel(Context->Level) * Scale;
+        Params.DamageType = Prototype->DamageType;
+        Params.bIsRadialDamage = false;
+        UMyAbilitySystemLibrary::ApplyDamageEffect(Params);
     }
-    Mass->ApplyDamage(Id, Damage);
-    Impact(View.Location);
-    Emit(Prototype->OnHit, View.Location, Id);
+    else
+    {
+        auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
+        if (!Mass) return false;
+        FPureMassDamage Damage;
+        Damage.Source = Context->Caster;
+        Damage.Amount = Prototype->DamageAtLevel(Context->Level) * Scale;
+        Damage.DamageType = Prototype->DamageType;
+        const auto& Params = Context->DamageParams;
+        if (Params.DebuffChance > 0.f && FMath::FRandRange(0.f,100.f) < Params.DebuffChance)
+        {
+            Damage.StatusDuration = Params.DebuffDuration;
+            Damage.DamagePerSecond = Params.DebuffDamage / FMath::Max(.1f, Params.DebuffFrequency);
+        }
+        Mass->ApplyDamage(Candidate.EntityId, Damage);
+    }
+    Impact(Position);
+    Emit(Prototype->OnHit, Position, Candidate);
     return true;
 }
 
-bool APureMassRuntime::Emit(UAbilityPrototype* Child, FVector Position, int32 Id)
+bool APureMassRuntime::Emit(UAbilityPrototype* Child, FVector Position, FPureMassCombatTarget Candidate)
 {
     return HasAuthority() && Context && !Context->bCancelled && Child
-        && Spawn(Context, Child, Position, Direction, Id, Depth + 1) != nullptr;
+        && Spawn(Context, Child, Position, Direction, Candidate, Depth + 1) != nullptr;
 }
 
-int32 APureMassRuntime::Nearest(FVector Origin, float Radius) const
+FPureMassCombatTarget APureMassRuntime::Nearest(FVector Origin, float Radius) const
 {
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (!Mass) return INDEX_NONE;
     float Best = FMath::Square(Radius);
-    int32 Result = INDEX_NONE;
-    for (int32 Id : Mass->QueryRadius(Origin, Radius))
+    FPureMassCombatTarget Result;
+    for (const auto& Candidate : PureMassCombat::Gather(GetWorld(), GetOwner(), Origin, Radius))
     {
-        FPureMassView V;
-        if (HitIds.Contains(Id) || !Mass->Resolve(Id, V)) continue;
-        const float Dist = FVector::DistSquared(Origin, V.Location);
-        if (Dist <= Best && Visible(Origin, V.Location)) { Result = Id; Best = Dist; }
+        FVector Position;
+        if (HitTargets.Contains(Candidate) || !PureMassCombat::Resolve(GetWorld(), GetOwner(), Candidate, Position)) continue;
+        const float Dist = FVector::DistSquared(Origin, Position);
+        if (Dist <= Best && Visible(Origin, Candidate)) { Result = Candidate; Best = Dist; }
     }
     return Result;
 }
 
 void APureMassRuntime::Pulse()
 {
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (!Mass) return;
     using K = EAbilityPrototypeKind;
     const auto Kind = Prototype->Kind;
     const FVector Facing = Direction.GetSafeNormal2D(SMALL_NUMBER, FVector::ForwardVector);
     const FVector Right = FVector::CrossProduct(FVector::UpVector, Facing);
     const float Bounds = Kind == K::Line ? FMath::Sqrt(FMath::Square(Prototype->Range) + FMath::Square(Prototype->Width*.5f) + FMath::Square(Prototype->ShapeHalfHeight))
         : Kind == K::Ring ? FMath::Sqrt(FMath::Square(Prototype->Radius) + FMath::Square(Prototype->ShapeHalfHeight)) : Prototype->Radius;
-    for (int32 Id : Mass->QueryRadius(GetActorLocation(), Bounds))
+    for (const auto& Candidate : PureMassCombat::Gather(GetWorld(), GetOwner(), GetActorLocation(), Bounds))
     {
-        FPureMassView V;
-        if (!Mass->Resolve(Id, V)) continue;
-        const FVector Offset = V.Location - GetActorLocation();
+        FVector Position;
+        if (!PureMassCombat::Resolve(GetWorld(), GetOwner(), Candidate, Position)) continue;
+        const FVector Offset = Position - GetActorLocation();
         if (Kind == K::Cone && !Offset.IsNearlyZero()
             && FVector::DotProduct(Facing, Offset.GetSafeNormal2D()) < FMath::Cos(FMath::DegreesToRadians(Prototype->SpreadDegrees * .5f))) continue;
         if ((Kind == K::Line || Kind == K::Ring) && FMath::Abs(Offset.Z) > Prototype->ShapeHalfHeight) continue;
@@ -170,17 +189,15 @@ void APureMassRuntime::Pulse()
             const float Along = FVector::DotProduct(Facing, Offset);
             if (Along < 0.f || Along > Prototype->Range || FMath::Abs(FVector::DotProduct(Right, Offset)) > Prototype->Width * .5f) continue;
         }
-        if (Kind == K::Wave && (HitIds.Contains(Id) || Offset.SizeSquared() > FMath::Square(WaveRadius))) continue;
-        if (!Visible(GetActorLocation(), V.Location)) continue;
-        Hit(Id);
-        if (Kind == K::Wave) HitIds.Add(Id);
+        if (Kind == K::Wave && (HitTargets.Contains(Candidate) || Offset.SizeSquared() > FMath::Square(WaveRadius))) continue;
+        if (!Visible(GetActorLocation(), Candidate)) continue;
+        Hit(Candidate);
+        if (Kind == K::Wave) HitTargets.Add(Candidate);
     }
 }
 
 void APureMassRuntime::Projectile(float Delta)
 {
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (!Mass) { Finish(true); return; }
     using K = EAbilityPrototypeKind;
     const bool bReturn = Prototype->Kind == K::Returning;
     float Remaining = FMath::Max(0.f, Prototype->Range - Travel);
@@ -192,30 +209,27 @@ void APureMassRuntime::Projectile(float Delta)
     }
     if (Prototype->Kind == K::Homing)
     {
-        FPureMassView V;
-        if (!Mass->Resolve(TargetId, V)) { Finish(false); return; }
-        Direction = FMath::VInterpNormalRotationTo(Direction, (V.Location - GetActorLocation()).GetSafeNormal(), Delta, Prototype->HomingTurnRate);
+        FVector Position;
+        if (!PureMassCombat::Resolve(GetWorld(), GetOwner(), Target, Position)) { Finish(false); return; }
+        Direction = FMath::VInterpNormalRotationTo(Direction, (Position - GetActorLocation()).GetSafeNormal(), Delta, Prototype->HomingTurnRate);
     }
     const float Step = FMath::Min(Prototype->Speed * Delta, Remaining);
     const FVector Start = GetActorLocation(), End = Start + Direction * Step;
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(PureMassProjectile), false, GetOwner());
-    Query.AddIgnoredActor(this);
     FHitResult Wall;
-    const bool bWall = GetWorld()->SweepSingleByChannel(Wall, Start, End, FQuat::Identity, ECC_Visibility,
-        FCollisionShape::MakeSphere(Prototype->CollisionRadius), Query);
-    // Re-query with the growing exclusion set: one entity can never absorb a second hit in this pass.
+    // Re-query both representations with the growing exclusion set; walls still win ties.
     for (int32 I = 0; I < 64; ++I)
     {
         float Time = 1.f;
-        const int32 Id = Mass->Sweep(Start, End, Prototype->CollisionRadius, Time, &HitIds);
-        if (Id == INDEX_NONE || !EntityBeforeWall(Time, bWall, Wall.Time)) break;
-        if (bReturn && HitIds.Num() >= Prototype->Count) break;
+        const auto Candidate = PureMassCombat::Sweep(GetWorld(), GetOwner(), Start, End,
+            Prototype->CollisionRadius, Time, Wall, &HitTargets, this);
+        if (!Candidate.IsSet()) break;
+        if (bReturn && HitTargets.Num() >= Prototype->Count) break;
         SetActorLocation(FMath::Lerp(Start, End, Time));
-        Hit(Id, bReturn ? (bReturning ? Prototype->DamageFalloff : 1.f) : FMath::Pow(Prototype->DamageFalloff, HitIds.Num()));
-        HitIds.Add(Id);
-        if (!bReturn && (Prototype->Kind != K::Piercing || HitIds.Num() >= Prototype->Count)) { Finish(false); return; }
+        Hit(Candidate, bReturn ? (bReturning ? Prototype->DamageFalloff : 1.f) : FMath::Pow(Prototype->DamageFalloff, HitTargets.Num()));
+        HitTargets.Add(Candidate);
+        if (!bReturn && (Prototype->Kind != K::Piercing || HitTargets.Num() >= Prototype->Count)) { Finish(false); return; }
     }
-    if (bWall) { SetActorLocation(Wall.Location); Impact(Wall.ImpactPoint); Finish(false); return; }
+    if (Wall.bBlockingHit) { SetActorLocation(Wall.Location); Impact(Wall.ImpactPoint); Finish(false); return; }
     SetActorLocation(End);
     SetActorRotation(Direction.Rotation());
     Travel += Step;
@@ -225,7 +239,7 @@ void APureMassRuntime::Projectile(float Delta)
         if (!bReturning && Travel >= Prototype->Range)
         {
             bReturning = true;
-            HitIds.Reset();
+            HitTargets.Reset();
             const float Remainder = Delta - Step / Prototype->Speed;
             if (Remainder > SMALL_NUMBER) Projectile(Remainder);
         }
@@ -235,40 +249,37 @@ void APureMassRuntime::Projectile(float Delta)
 
 void APureMassRuntime::Chain()
 {
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    FPureMassView V;
-    const float Reach = HitIds.IsEmpty() ? Prototype->Range : Prototype->Radius;
-    if (!Mass || HitIds.Num() >= Prototype->Count || HitIds.Contains(TargetId) || !Mass->Resolve(TargetId, V)
-        || FVector::DistSquared(ChainOrigin, V.Location) > FMath::Square(Reach) || !Visible(ChainOrigin, V.Location))
+    FVector Position;
+    const float Reach = HitTargets.IsEmpty() ? Prototype->Range : Prototype->Radius;
+    if (HitTargets.Num() >= Prototype->Count || HitTargets.Contains(Target) || !PureMassCombat::Resolve(GetWorld(), GetOwner(), Target, Position)
+        || FVector::DistSquared(ChainOrigin, Position) > FMath::Square(Reach) || !Visible(ChainOrigin, Target))
     { Finish(false); return; }
     SetActorLocation(ChainOrigin);
-    BeamEnd = V.Location;
-    Hit(TargetId, FMath::Pow(Prototype->DamageFalloff, HitIds.Num()));
-    HitIds.Add(TargetId);
-    ChainOrigin = V.Location;
-    TargetId = Nearest(V.Location, Prototype->Radius);
+    BeamEnd = Position;
+    Hit(Target, FMath::Pow(Prototype->DamageFalloff, HitTargets.Num()));
+    HitTargets.Add(Target);
+    ChainOrigin = Position;
+    Target = Nearest(Position, Prototype->Radius);
     ForceNetUpdate();
-    if (TargetId == INDEX_NONE || HitIds.Num() >= Prototype->Count) Finish(false);
+    if (!Target.IsSet() || HitTargets.Num() >= Prototype->Count) Finish(false);
 }
 
-void APureMassRuntime::NotifyCommittedAttack(AActor* Caster, UGameplayAbility* Ability, int32 Id)
+void APureMassRuntime::NotifyCommittedAttack(AActor* Caster, UGameplayAbility* Ability, FPureMassCombatTarget Candidate)
 {
     auto* DamageAbility = Cast<UMyDamageGameplayAbility>(Ability);
     if (!IsValid(Caster) || !Caster->HasAuthority() || !DamageAbility || !DamageAbility->HasCommittedOffensiveAttack()) return;
-    auto* Mass = Caster->GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    FPureMassView V;
-    if (!Mass || !Mass->Resolve(Id, V)) return;
+    FVector Position;
+    if (!PureMassCombat::Resolve(Caster->GetWorld(), Caster, Candidate, Position)) return;
     for (TActorIterator<APureMassRuntime> It(Caster->GetWorld()); It; ++It)
         if (It->GetOwner() == Caster && !It->bFinished && It->Prototype && It->Prototype->Kind == EAbilityPrototypeKind::Orbit
-            && It->Prototype->OrbitSettings && FVector::DistSquared(Caster->GetActorLocation(), V.Location) <= FMath::Square(It->Prototype->OrbitSettings->MaxTargetDistance))
-            It->TargetId = Id;
+            && It->Prototype->OrbitSettings && FVector::DistSquared(Caster->GetActorLocation(), Position) <= FMath::Square(It->Prototype->OrbitSettings->MaxTargetDistance))
+            It->Target = Candidate;
 }
 
 void APureMassRuntime::Orbit(float Delta)
 {
     const auto* Settings = Prototype->OrbitSettings.Get();
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (!Settings || !Mass) { Finish(true); return; }
+    if (!Settings) { Finish(true); return; }
     SetActorLocation(GetOwner()->GetActorLocation());
     PeriodClock += Delta;
     LaunchClock += Delta;
@@ -283,13 +294,13 @@ void APureMassRuntime::Orbit(float Delta)
             OrbitBolts[Index].Position = GetActorLocation()
                 + FVector(Settings->OrbitRadius, 0, Settings->OrbitHeight).RotateAngleAxis(Angle, FVector::UpVector);
         }
-        Emit(Prototype->OnPeriod, GetActorLocation(), TargetId);
+        Emit(Prototype->OnPeriod, GetActorLocation(), Target);
     }
-    FPureMassView Target;
-    const bool bTarget = Mass->Resolve(TargetId, Target)
-        && FVector::DistSquared(GetActorLocation(), Target.Location) <= FMath::Square(Settings->MaxTargetDistance);
-    if (!bTarget) TargetId = INDEX_NONE;
-    if (bTarget && LaunchClock >= Settings->LaunchInterval && Visible(GetActorLocation(), Target.Location))
+    FVector TargetPosition;
+    const bool bTarget = PureMassCombat::Resolve(GetWorld(), GetOwner(), Target, TargetPosition)
+        && FVector::DistSquared(GetActorLocation(), TargetPosition) <= FMath::Square(Settings->MaxTargetDistance);
+    if (!bTarget) Target = {};
+    if (bTarget && LaunchClock >= Settings->LaunchInterval && Visible(GetActorLocation(), Target))
     {
         for (auto& Bolt : OrbitBolts) if (!Bolt.bLaunched) { Bolt.bLaunched = true; Bolt.Age = 0.f; LaunchClock = 0.f; break; }
     }
@@ -305,15 +316,13 @@ void APureMassRuntime::Orbit(float Delta)
         }
         Bolt.Age += Delta;
         const FVector Start = Bolt.Position;
-        const FVector End = FMath::VInterpConstantTo(Start, Target.Location, Delta, Settings->ProjectileSpeed);
+        const FVector End = FMath::VInterpConstantTo(Start, TargetPosition, Delta, Settings->ProjectileSpeed);
         float Time = 1.f;
-        const int32 Id = Mass->Sweep(Start, End, Prototype->CollisionRadius, Time);
         FHitResult Wall;
-        FCollisionQueryParams Query(SCENE_QUERY_STAT(PureMassOrbit), false, GetOwner()); Query.AddIgnoredActor(this);
-        const bool bWall = GetWorld()->SweepSingleByChannel(Wall, Start, End, FQuat::Identity, ECC_Visibility,
-            FCollisionShape::MakeSphere(Prototype->CollisionRadius), Query);
-        if (Id != INDEX_NONE && EntityBeforeWall(Time, bWall, Wall.Time)) { Hit(Id); OrbitBolts.RemoveAt(I); continue; }
-        if (bWall || Bolt.Age >= Settings->MaxFlightSeconds) { OrbitBolts.RemoveAt(I); continue; }
+        const auto Candidate = PureMassCombat::Sweep(GetWorld(), GetOwner(), Start, End,
+            Prototype->CollisionRadius, Time, Wall, nullptr, this);
+        if (Candidate.IsSet()) { Hit(Candidate); OrbitBolts.RemoveAt(I); continue; }
+        if (Wall.bBlockingHit || Bolt.Age >= Settings->MaxFlightSeconds) { OrbitBolts.RemoveAt(I); continue; }
         Bolt.Position = End;
     }
 }
@@ -355,7 +364,7 @@ void APureMassRuntime::Tick(float Delta)
         for (int32 I = 0; I < 8 && PeriodClock >= Prototype->Period; ++I)
         {
             PeriodClock -= Prototype->Period;
-            if (Kind != K::Burst) Emit(Prototype->OnPeriod, GetActorLocation(), TargetId);
+            if (Kind != K::Burst) Emit(Prototype->OnPeriod, GetActorLocation(), Target);
         }
     }
     if (Kind == K::Projectile || Kind == K::Multishot || Kind == K::Homing || Kind == K::Piercing || Kind == K::Returning)
@@ -371,36 +380,35 @@ void APureMassRuntime::Tick(float Delta)
     if (Kind == K::Delay) { if (Age >= Prototype->ArmDelay) Finish(false); return; }
     if (Kind == K::Trap)
     {
-        if (Age >= Prototype->ArmDelay && Nearest(GetActorLocation(), Prototype->Radius) != INDEX_NONE) { Pulse(); Finish(false); }
+        if (Age >= Prototype->ArmDelay && Nearest(GetActorLocation(), Prototype->Radius).IsSet()) { Pulse(); Finish(false); }
         return;
     }
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
     if (Kind == K::Beam)
     {
-        FPureMassView V;
-        if (!Mass || !Mass->Resolve(TargetId, V) || FVector::DistSquared(GetOwner()->GetActorLocation(), V.Location) > FMath::Square(Prototype->Range)
-            || !Visible(GetOwner()->GetActorLocation() + FVector(0,0,30), V.Location)) { Finish(false); return; }
+        FVector Position;
+        if (!PureMassCombat::Resolve(GetWorld(), GetOwner(), Target, Position) || FVector::DistSquared(GetOwner()->GetActorLocation(), Position) > FMath::Square(Prototype->Range)
+            || !Visible(GetOwner()->GetActorLocation() + FVector(0,0,30), Target)) { Finish(false); return; }
         SetActorLocation(GetOwner()->GetActorLocation() + FVector(0,0,30));
-        BeamEnd = V.Location;
+        BeamEnd = Position;
     }
     if (Kind == K::Beam || Kind == K::Field || Kind == K::Chain || Kind == K::Emitter) PeriodClock += Delta;
-    if (Kind == K::Chain && HitIds.IsEmpty()) { Chain(); PeriodClock = 0.f; return; }
+    if (Kind == K::Chain && HitTargets.IsEmpty()) { Chain(); PeriodClock = 0.f; return; }
     // At most eight catch-up pulses per frame; no unbounded bursts after a hitch.
     for (int32 I = 0; I < 8 && !bFinished && PeriodClock >= Prototype->Period; ++I)
     {
         PeriodClock -= Prototype->Period;
         if (Kind == K::Chain) { Chain(); continue; }
         if (Kind == K::Field) Pulse();
-        if (Kind == K::Beam) Hit(TargetId);
+        if (Kind == K::Beam) Hit(Target);
         if (Kind == K::Emitter)
         {
-            TargetId = Nearest(GetActorLocation(), Prototype->Radius);
-            FPureMassView V;
-            if (TargetId == INDEX_NONE || !Mass || !Mass->Resolve(TargetId, V)) { PeriodClock = 0.f; break; }
-            Direction = (V.Location - GetActorLocation()).GetSafeNormal(SMALL_NUMBER, Direction);
-            if (Emit(Prototype->OnPeriod, GetActorLocation(), TargetId) && ++Emissions >= Prototype->Count) Finish(false);
+            Target = Nearest(GetActorLocation(), Prototype->Radius);
+            FVector Position;
+            if (!PureMassCombat::Resolve(GetWorld(), GetOwner(), Target, Position)) { PeriodClock = 0.f; break; }
+            Direction = (Position - GetActorLocation()).GetSafeNormal(SMALL_NUMBER, Direction);
+            if (Emit(Prototype->OnPeriod, GetActorLocation(), Target) && ++Emissions >= Prototype->Count) Finish(false);
         }
-        else Emit(Prototype->OnPeriod, GetActorLocation(), TargetId);
+        else Emit(Prototype->OnPeriod, GetActorLocation(), Target);
     }
 }
 
@@ -409,7 +417,7 @@ void APureMassRuntime::Finish(bool bCancelled)
     if (bFinished) return;
     bFinished = true;
     if (bCancelled) { if (Context) Context->bCancelled = true; }
-    else Emit(Prototype->OnExpire, Prototype->Kind == EAbilityPrototypeKind::Chain ? ChainOrigin : GetActorLocation(), TargetId);
+    else Emit(Prototype->OnExpire, Prototype->Kind == EAbilityPrototypeKind::Chain ? ChainOrigin : GetActorLocation(), Target);
     if (IsValid(Surface)) Surface->Destroy();
     Surface = nullptr;
     OrbitBolts.Reset();

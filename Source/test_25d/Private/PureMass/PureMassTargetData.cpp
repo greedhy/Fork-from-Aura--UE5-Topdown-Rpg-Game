@@ -1,6 +1,8 @@
 #include "PureMass/PureMassTargetData.h"
 #include "PureMass/PureMassSubsystem.h"
 #include "PureMass/PureMassRuntime.h"
+#include "PureMass/PureMassCombatTarget.h"
+#include "Components/PrimitiveComponent.h"
 #include "AbilitySystemComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
@@ -28,23 +30,23 @@ void UPureMassTargetData::Activate()
     Data.Add(Hit);
     FVector Start, Direction;
     auto* PC = Info->PlayerController.Get();
-    auto* Mass = GetWorld()->GetSubsystem<UPureMassSubsystem>();
-    if (PC && Mass && PC->DeprojectMousePositionToWorld(Start, Direction))
+    if (PC && PC->DeprojectMousePositionToWorld(Start, Direction))
     {
         const FVector End = Start + Direction * 100000.f;
         float EntityTime = 1.f;
-        const int32 Id = Mass->Sweep(Start, End, 0.f, EntityTime);
         FHitResult Wall;
-        FCollisionQueryParams Query(SCENE_QUERY_STAT(PureMassCursor), false, Info->AvatarActor.Get());
-        const bool bWall = GetWorld()->LineTraceSingleByChannel(Wall, Start, End, ECC_Visibility, Query);
-        if (Id != INDEX_NONE && APureMassRuntime::EntityBeforeWall(EntityTime, bWall, Wall.Time))
+        const auto Target = PureMassCombat::Sweep(GetWorld(), Info->AvatarActor.Get(), Start, End, 0.f, EntityTime, Wall);
+        FVector Location;
+        if (Target.IsSet() && PureMassCombat::Resolve(GetWorld(), Info->AvatarActor.Get(), Target, Location))
         {
+            if (AActor* Actor = Target.Actor.Get())
+                Hit->HitResult = FHitResult(Actor, Cast<UPrimitiveComponent>(Actor->GetRootComponent()), Location, FVector::UpVector);
             Hit->HitResult.bBlockingHit = true;
-            Hit->HitResult.Item = Id;
-            Hit->HitResult.ImpactPoint = FMath::Lerp(Start, End, EntityTime);
+            Hit->HitResult.Item = Target.EntityId;
+            Hit->HitResult.ImpactPoint = Location;
             Hit->HitResult.Location = Hit->HitResult.ImpactPoint;
         }
-        else if (bWall)
+        else if (Wall.bBlockingHit)
         {
             Hit->HitResult.bBlockingHit = true;
             Hit->HitResult.Item = INDEX_NONE;
