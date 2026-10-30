@@ -2,6 +2,7 @@
 
 
 #include "AbilitySystem/MyAbilitySystemLibrary.h"
+#include "Roguelike/DungeonRunDirector.h"
 
 #include "AbilitySystemBlueprintLibrary.h"
 #include "GameplayEffectTypes.h"
@@ -235,8 +236,14 @@ int32 UMyAbilitySystemLibrary::GetXPRewardForClassAndLevel(const UObject* WorldC
 }
 FGameplayEffectContextHandle UMyAbilitySystemLibrary::ApplyDamageEffect(const FDamageEffectParams& DamageEffectParams)
 {
-	const FMyGameplayTags& GameplayTags = FMyGameplayTags::Get();
+	if (!IsValid(DamageEffectParams.SourceAbilitySystemComponent)
+		|| !IsValid(DamageEffectParams.TargetAbilitySystemComponent) || !DamageEffectParams.DamageGameplayEffectClass)
+		return FGameplayEffectContextHandle();
 	const AActor* SourceAvatarActor = DamageEffectParams.SourceAbilitySystemComponent->GetAvatarActor();
+	const AActor* TargetAvatarActor = DamageEffectParams.TargetAbilitySystemComponent->GetAvatarActor();
+	if (!IsValid(SourceAvatarActor) || !IsValid(TargetAvatarActor)
+		|| !ADungeonRunDirector::AllowsCombat(SourceAvatarActor, TargetAvatarActor)) return FGameplayEffectContextHandle();
+	const FMyGameplayTags& GameplayTags = FMyGameplayTags::Get();
 
 	FGameplayEffectContextHandle EffectContexthandle = DamageEffectParams.SourceAbilitySystemComponent->MakeEffectContext();
 	EffectContexthandle.AddSourceObject(SourceAvatarActor);
@@ -250,6 +257,7 @@ FGameplayEffectContextHandle UMyAbilitySystemLibrary::ApplyDamageEffect(const FD
 
 	const FGameplayEffectSpecHandle SpecHandle = DamageEffectParams.SourceAbilitySystemComponent->
 	MakeOutgoingSpec(DamageEffectParams.DamageGameplayEffectClass, DamageEffectParams.AbilityLevel, EffectContexthandle);
+	if (!SpecHandle.IsValid()) return FGameplayEffectContextHandle();
 
 	UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(SpecHandle, DamageEffectParams.DamageType, DamageEffectParams.BaseDamage);
 	UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(SpecHandle, GameplayTags.Debuff_Chance, DamageEffectParams.DebuffChance);

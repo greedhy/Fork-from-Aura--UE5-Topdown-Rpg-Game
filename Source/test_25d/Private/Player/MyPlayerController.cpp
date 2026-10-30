@@ -23,6 +23,11 @@
 #include "Player/MyPlayerState.h"
 #include "UI/Widget/MyUserWidget.h"
 #include "UI/Widget/BackpackWidget.h"
+#include "UI/Widget/EquipmentPanel.h"
+#include "Equipment/EquipmentComponent.h"
+#include "Equipment/EquipmentSoulPickup.h"
+#include "EngineUtils.h"
+#include "Components/SphereComponent.h"
 #include "UI/ViewModel/MVVM_Backpack.h"
 #include "test_25d/test_25d.h"
 #include "TimerManager.h"
@@ -39,6 +44,22 @@ AMyPlayerController::AMyPlayerController()
 void AMyPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+ if (IsLocalController())
+ {
+  if (bBackpackUIOpen && BackpackWidget && !BackpackWidget->IsInViewport()) CloseBackpackUI();
+  EquipmentFocusElapsed += DeltaTime;
+  if (EquipmentFocusElapsed >= .1f)
+  {
+   EquipmentFocusElapsed = 0.f; FocusedEquipmentPickup.Reset();
+   float Best = MAX_flt;
+   if (const APawn* LocalPawn = GetPawn()) for (TActorIterator<AEquipmentSoulPickup> It(GetWorld()); It; ++It)
+   {
+    if (!It->PickupRange->IsOverlappingActor(LocalPawn) || !It->CanPlayerPickup(GetPlayerState<AMyPlayerState>())) continue;
+    const float Distance = FVector::DistSquared(LocalPawn->GetActorLocation(),It->GetActorLocation());
+    if (Distance < Best) { Best = Distance; FocusedEquipmentPickup = *It; }
+   }
+  }
+ }
 	CursorTrace();
 
 	AutoRun();
@@ -133,6 +154,16 @@ void AMyPlayerController::OpenBackpackUI()
 	}
 	BackpackWidget->SetRenderOpacity(0.f);
 	BackpackWidget->AddToViewport();
+ if (auto* State = GetPlayerState<AMyPlayerState>())
+ {
+  auto* Bag = State->GetBackpackComponent(); Bag->Initialize();
+  if (!EquipmentWidget) EquipmentWidget = CreateWidget<UEquipmentPanel>(this,UEquipmentPanel::StaticClass());
+  EquipmentWidget->InitializeEquipment(State->GetEquipmentComponent(),Bag->InventoryVM,Bag->InventoryModel);
+  EquipmentWidget->SetDesiredSizeInViewport(FVector2D(350,520));
+  EquipmentWidget->SetPositionInViewport(FVector2D(28.f,0.f),false);
+  EquipmentWidget->SetAnchorsInViewport(FAnchors(0.f,.5f)); EquipmentWidget->SetAlignmentInViewport(FVector2D(0.f,.5f));
+  EquipmentWidget->AddToViewport(20);
+ }
 	bBackpackUIOpen = true;
 	BackpackWidget->ForceLayoutPrepass();
 	GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
@@ -153,6 +184,7 @@ void AMyPlayerController::CloseBackpackUI()
 {
 	if (!IsLocalController() || !IsValid(BackpackWidget)) return;
 	BackpackWidget->RemoveFromParent();
+ if (EquipmentWidget) EquipmentWidget->RemoveFromParent();
 	bBackpackUIOpen = false;
 	bShowMouseCursor = true;
 	FInputModeGameAndUI InputMode;
@@ -389,7 +421,10 @@ AActor* AMyPlayerController::GetRandomOverlappingInteractPickup()
 		}
 	}
 
-	return Candidates.IsEmpty() ? nullptr : Candidates[FMath::RandHelper(Candidates.Num())];
+	if (Candidates.IsEmpty()) return nullptr;
+ if (const APawn* ControlledPickupPawn = GetPawn()) Candidates.Sort([ControlledPickupPawn](const AActor& A, const AActor& B)
+ { return FVector::DistSquared(A.GetActorLocation(),ControlledPickupPawn->GetActorLocation()) < FVector::DistSquared(B.GetActorLocation(),ControlledPickupPawn->GetActorLocation()); });
+ return Candidates[0];
 }
 
 int32 AMyPlayerController::GetOverlappingInteractPickupCount() const

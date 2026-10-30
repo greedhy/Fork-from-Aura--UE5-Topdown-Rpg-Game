@@ -1,4 +1,5 @@
 #include "PureMass/PureMassPlayerCharacter.h"
+#include "Equipment/EquipmentComponent.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/Controller.h"
@@ -77,5 +78,6 @@ void APureMassPlayerCharacter::PossessedBy(AController* NewController)
         AddCharacterAbilities();
         ASC->UpdateAbilityStatuses(GetPlayerLevel_Implementation());
     }
+    if (auto* State = GetPlayerState<AMyPlayerState>()) State->GetEquipmentComponent()->ReconcileEffects();
 }
 

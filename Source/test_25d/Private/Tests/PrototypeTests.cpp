@@ -91,6 +91,28 @@ struct FWorld
 }
 using namespace PrototypeTests;
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCompositionFieldTiming,"test_25d.Prototypes.CompositionFieldFinalPulseAndCatchup",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FCompositionFieldTiming::RunTest(const FString&)
+{
+    for (const TCHAR* Name : {TEXT("FireSeed_Field"), TEXT("StormSeal")})
+    {
+        FWorld F;
+        const FString Path = FString::Printf(TEXT("/Game/BluePrints/AbilitySystem/Player/Ability/Compositions/DA_%s.DA_%s"),Name,Name);
+        auto* C = LoadObject<UAbilityPrototype>(nullptr,*Path);
+        if (!TestNotNull(TEXT("Saved field"),C)) return false;
+        auto* Enemy = F.Character(FVector(50,0,0),TEXT("Enemy"));
+        auto* R = F.Start(C,F.Context());
+        if (!TestNotNull(TEXT("Field runtime"),R)) return false;
+        R->Tick(C->Duration);
+        const int32 Pulses = FMath::FloorToInt(C->Duration/C->Period);
+        TestEqual(TEXT("All scheduled field pulses including final boundary"),F.Health(Enemy),1000.f-Pulses*C->DamageAtLevel(1));
+        const float Health = F.Health(Enemy);
+        R->Tick(1.f);
+        TestEqual(TEXT("Finished field cannot pulse again"),F.Health(Enemy),Health);
+    }
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPrototypeBudget,"test_25d.Prototypes.ConfigAndCompositionBudget",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FPrototypeBudget::RunTest(const FString&)
 {

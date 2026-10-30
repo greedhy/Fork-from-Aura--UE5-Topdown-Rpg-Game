@@ -225,7 +225,7 @@ FString UPrototypeAbility::GetDescription(int32 Level)
     {
         const UAbilityPrototype* Child = P.OnHit ? P.OnHit.Get() : P.OnExpire ? P.OnExpire.Get() : P.OnPeriod.Get();
         const TCHAR* Trigger = P.OnHit ? TEXT("Hit") : P.OnExpire ? TEXT("End") : TEXT("Tick");
-        Detail = FString::Printf(TEXT("%.0f damage | %s: %s"),HitDamage,Trigger,*Child->DisplayName.ToString().Left(24));
+        Detail += FString::Printf(TEXT(" %s: %s"),Trigger,*Child->DisplayName.ToString().Left(24));
     }
     return FString::Printf(TEXT("<Title>%s</>\n<Small>Lv.%d | MP %.0f | CD %.1fs</>\n<Default>%s</>"),
         *P.DisplayName.ToString(), Level, P.ManaCost, P.Cooldown, *Detail);

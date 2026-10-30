@@ -52,6 +52,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bTargetSelf = false;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UNiagaraSystem> LoopVFX;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UNiagaraSystem> ImpactVFX;
+    /** Presentation only: never changes gameplay origin or damage volume. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Presentation") FVector LoopVFXScale = FVector::OneVector;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Presentation") FVector ImpactVFXScale = FVector::OneVector;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Presentation") bool bGroundPresentation = false;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) TSubclassOf<ATerrainSurface> SurfaceClass;
     UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UOrbitingFireBoltConfig> OrbitSettings;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Composition") TObjectPtr<UAbilityPrototype> OnHit;

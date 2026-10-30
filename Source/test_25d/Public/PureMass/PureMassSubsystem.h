@@ -6,6 +6,7 @@
 #include "MassArchetypeTypes.h"
 #include "Mass/MonsterSpatialIndex.h"
 #include "PureMass/PureMassTypes.h"
+#include "PureMass/PureMassEncounterTypes.h"
 #include "PureMassSubsystem.generated.h"
 
 class UMassEntitySubsystem;
@@ -23,6 +24,12 @@ public:
     virtual bool DoesSupportWorldType(EWorldType::Type Type) const override;
     UFUNCTION(BlueprintCallable) void Enable();
     UFUNCTION(BlueprintCallable) int32 SpawnMonster(UPureMassMonsterType* Type, FVector Location, FName Room = NAME_None);
+    /** Public removal never reports Killed; only the damage path can credit a kill. */
+    UFUNCTION(BlueprintCallable, Category="PureMass|Encounter") bool RemoveMonster(int32 Id, EPureMassRemovalReason Reason = EPureMassRemovalReason::Recycled);
+    /** Axis-aligned XY limits; Extent must be finite and positive. Unregistered rooms are unrestricted. */
+    UFUNCTION(BlueprintCallable, Category="PureMass|Encounter") bool SetRoomBounds(FName Room, FVector Center, FVector Extent);
+    UFUNCTION(BlueprintCallable, Category="PureMass|Encounter") void ClearRoomBounds(FName Room);
+    FOnPureMassRemoved OnMonsterRemoved;
     UFUNCTION(BlueprintPure) bool Resolve(int32 Id, FPureMassView& OutView) const;
     UFUNCTION(BlueprintPure) TArray<int32> QueryRadius(FVector Center, float Radius) const;
     int32 Sweep(FVector Start, FVector End, float Radius, float& OutTime, const TSet<int32>* Ignored = nullptr) const;
@@ -37,6 +44,10 @@ public:
     UFUNCTION(BlueprintPure) int64 GetDeathCount() const { return DeathCount; }
 private:
     bool IsAuthority() const;
+    bool RemoveMonsterInternal(int32 Id, EPureMassRemovalReason Reason);
+    bool IsInsideRoom(FName Room, FVector Location, float Radius = 0.f) const;
+    bool IsRoomDamageSourceAllowed(FName Room, const AActor* Source) const;
+    FVector ConstrainToRoom(FName Room, FVector Location, float Radius) const;
     void Publish(const FPureMassFragment& Fragment);
     float DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source, bool bBlocked = false, bool bCritical = false);
     float EvaluateDamage(const FPureMassFragment& Fragment, const FPureMassDamage& Damage, bool& bBlocked, bool& bCritical) const;
@@ -50,6 +61,9 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<UPureMassMonsterType>> RetainedTypes;
     UPROPERTY(Transient) TMap<int32, FPureMassView> Views;
     TMap<int32, FMassEntityHandle> Entities;
+    // Independent identity survives unexpected external destruction of an entity fragment.
+    TMap<int32, FName> EntityRooms;
+    TMap<FName, FBox> RoomBounds;
     FMassArchetypeHandle Archetype;
     FMonsterSpatialIndex Grid;
     TArray<TWeakObjectPtr<APawn>> Players;

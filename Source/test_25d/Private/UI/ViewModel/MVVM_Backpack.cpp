@@ -5,6 +5,7 @@
 
 #include "MVVMViewModelBase.h"
 #include "Backpack/InventoryModel.h"
+#include "Equipment/EquipmentGenerator.h"
 #include "Player/MyPlayerController.h"
 #include "UI/ViewModel/MVVM_InventorySlot.h"
 
@@ -71,6 +72,9 @@ void UMVVM_Backpack::RebuildFromModel()
         SlotVMs.Add(VM);
     }
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSlotViewModels);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemName);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemDescription);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedStackText);
 
   
 }
@@ -220,6 +224,7 @@ void UMVVM_Backpack::SelectSlot(int32 SlotIndex)
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCurrentSelectedIndex);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(HasSelectedItem);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemName);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemDescription);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedStackText);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanUseSelectedItem);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanDropSelectedItem);
@@ -247,7 +252,14 @@ bool UMVVM_Backpack::RequestDeleteSelectedItem(int32 Count)
 FText UMVVM_Backpack::GetSelectedItemName() const
 {
     if (!HasSelectedItem()) return FText::GetEmpty();
-	return FText::FromName(Model->GetSlots()[CurrentSelectedIndex].ItemDefinitionId.PrimaryAssetName);
+	const auto& Id = Model->GetSlots()[CurrentSelectedIndex].ItemDefinitionId;
+    const auto* Def = Model->FindItemDefinition(Id);
+    return FEquipmentGenerator::MakeDisplayName(Def ? Def->DisplayName : FText::FromName(Id.PrimaryAssetName), Model->GetSlots()[CurrentSelectedIndex].RollData);
+}
+
+FText UMVVM_Backpack::GetSelectedItemDescription() const
+{
+    return HasSelectedItem() ? FEquipmentGenerator::MakeDescription(Model->GetSlots()[CurrentSelectedIndex].RollData) : FText::GetEmpty();
 }
 
 void UMVVM_Backpack::ResetSelection()
@@ -261,6 +273,7 @@ void UMVVM_Backpack::ResetSelection()
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCurrentSelectedIndex);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(HasSelectedItem);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemName);
+    UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedItemDescription);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetSelectedStackText);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanUseSelectedItem);
     UE_MVVM_BROADCAST_FIELD_VALUE_CHANGED(GetCanDropSelectedItem);

@@ -1,7 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Equipment/EquipmentRollTypes.h"
 #include "GameFramework/SaveGame.h"
+#include "Equipment/EquipmentComponent.h"
 #include "BackpackPersistence.generated.h"
 
 USTRUCT(BlueprintType)
@@ -13,10 +15,14 @@ struct FBackpackSnapshotSlot
 	FPrimaryAssetId ItemDefinitionId;
 
 	UPROPERTY(SaveGame, BlueprintReadOnly)
+	FGuid ItemInstanceId;
+ UPROPERTY(SaveGame, BlueprintReadOnly) FEquipmentRollData RollData;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly)
 	int32 Quantity = 0;
 
 	bool IsEmpty() const { return !ItemDefinitionId.IsValid() || Quantity <= 0; }
-	void Clear() { ItemDefinitionId = FPrimaryAssetId(); Quantity = 0; }
+	void Clear() { RollData = FEquipmentRollData(); ItemInstanceId.Invalidate(); ItemDefinitionId = FPrimaryAssetId(); Quantity = 0; }
 };
 
 USTRUCT(BlueprintType)
@@ -26,6 +32,10 @@ struct FBackpackSnapshot
 
 	UPROPERTY(SaveGame, BlueprintReadOnly)
 	TArray<FBackpackSnapshotSlot> Slots;
+	UPROPERTY(SaveGame, BlueprintReadOnly)
+	TArray<FEquipmentSlot> Equipment;
+	UPROPERTY(SaveGame, BlueprintReadOnly)
+	int32 EquipmentRevision = 0;
 
 	UPROPERTY(SaveGame, BlueprintReadOnly)
 	int32 Capacity = 0;

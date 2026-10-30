@@ -152,13 +152,25 @@ void APrototypeRuntime::OnRep_Prototype()
 {
     if (!Prototype || GetNetMode() == NM_DedicatedServer || bPresentationReady) return;
     bPresentationReady = true;
+    Visual->SetRelativeScale3D(Prototype->LoopVFXScale);
+    if (Prototype->bGroundPresentation)
+    {
+        FVector Ground;
+        if (ProjectSurfaceToGround(GetOwner(),GetActorLocation(),Ground))
+        {
+            Visual->SetWorldLocation(Ground);
+            InnerVisual->SetWorldLocation(Ground);
+        }
+        Visual->SetWorldRotation(FRotator::ZeroRotator);
+        InnerVisual->SetWorldRotation(FRotator::ZeroRotator);
+    }
     if (!bFinished && Prototype->LoopVFX && (Prototype->Kind != EAbilityPrototypeKind::Multishot || bSingleProjectile))
     {
         Visual->SetAsset(Prototype->LoopVFX);
         Visual->Activate(true);
     }
     if (Prototype->Kind == EAbilityPrototypeKind::Burst && Prototype->ImpactVFX)
-        UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Prototype->ImpactVFX, GetActorLocation());
+        MulticastImpact_Implementation(GetActorLocation());
     if (Prototype->Kind == EAbilityPrototypeKind::Ring && Prototype->LoopVFX)
     {
         Visual->SetRelativeScale3D(FVector(Prototype->Radius/100.f,Prototype->Radius/100.f,.25f));
@@ -172,7 +184,7 @@ void APrototypeRuntime::OnRep_Prototype()
     if (Prototype->Kind == EAbilityPrototypeKind::Line && Prototype->ImpactVFX)
         for (int32 Index=1;Index<=5;++Index)
             UNiagaraFunctionLibrary::SpawnSystemAtLocation(this,Prototype->ImpactVFX,
-                GetActorLocation()+GetActorForwardVector()*Prototype->Range*Index/5.f,GetActorRotation(),FVector(.4f));
+                GetActorLocation()+GetActorForwardVector()*Prototype->Range*Index/5.f,GetActorRotation(),Prototype->ImpactVFXScale * .4f);
     if (Prototype->Kind == EAbilityPrototypeKind::Cone && Prototype->ImpactVFX)
         for (int32 Index=0;Index<3;++Index)
         {
@@ -221,6 +233,20 @@ void APrototypeRuntime::Tick(float Delta)
         if (Prototype->Kind == K::Wave) TickWave(ActiveDelta);
         else if (Prototype->Kind == K::Returning) TickProjectile(ActiveDelta);
         else TickEmitter(ActiveDelta);
+        if (Age >= Prototype->Duration) Finish(false);
+        return;
+    }
+    // Field pulses are scheduled over (0, Duration], including the last boundary.
+    // Consume only the active portion of a hitch before emitting the expiry child.
+    if (Prototype->Kind == K::Field)
+    {
+        PeriodClock += FMath::Min(Delta,FMath::Max(0.f,Prototype->Duration-(Age-Delta)));
+        while (PeriodClock + KINDA_SMALL_NUMBER >= Prototype->Period && !bFinished && !Context->bCancelled)
+        {
+            PeriodClock -= Prototype->Period;
+            Pulse();
+            Emit(TEXT("OnPeriod"), Prototype->OnPeriod, AttackTarget.Get(), GetActorLocation());
+        }
         if (Age >= Prototype->Duration) Finish(false);
         return;
     }
@@ -537,7 +563,7 @@ void APrototypeRuntime::OnRep_Finished()
     if (!Prototype || bFinishPresented) return;
     bFinishPresented = true;
     if (bImpactOnFinish && Prototype->ImpactVFX && GetNetMode() != NM_DedicatedServer)
-        UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Prototype->ImpactVFX, GetActorLocation());
+        MulticastImpact_Implementation(GetActorLocation());
 }
 
 void APrototypeRuntime::CancelCast()
@@ -550,7 +576,12 @@ void APrototypeRuntime::CancelCast()
 void APrototypeRuntime::MulticastImpact_Implementation(FVector Position)
 {
     if (Prototype && Prototype->ImpactVFX && GetNetMode() != NM_DedicatedServer)
-        UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Prototype->ImpactVFX, Position);
+    {
+        FVector Location = Position;
+        if (Prototype->bGroundPresentation) ProjectSurfaceToGround(GetOwner(),Position,Location);
+        UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, Prototype->ImpactVFX, Location,
+            FRotator::ZeroRotator, Prototype->ImpactVFXScale);
+    }
 }
 
 int32 APrototypeRuntime::GetOrbitCount() const

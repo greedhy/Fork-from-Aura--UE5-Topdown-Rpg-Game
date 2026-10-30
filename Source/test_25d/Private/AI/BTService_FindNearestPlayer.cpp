@@ -5,12 +5,15 @@
 #include"AIController.h"
 #include "BehaviorTree/BTFunctionLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "Interface/CombatInterface.h"
+#include "Roguelike/DungeonRunDirector.h"
 
 void UBTService_FindNearestPlayer::TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
 {
 	Super::TickNode(OwnerComp, NodeMemory, DeltaSeconds);
 
-	APawn* OwningPawn = AIOwner->GetPawn();
+	APawn* OwningPawn = AIOwner ? AIOwner->GetPawn() : nullptr;
+	if (!IsValid(OwningPawn)) return;
 	FName TargetTag = OwningPawn->ActorHasTag(FName("Player")) ? FName("Enemy") : FName("Player");
 	TArray<AActor*>ActorsWithTag;
 	UGameplayStatics::GetAllActorsWithTag(OwningPawn, TargetTag, ActorsWithTag);
@@ -19,6 +22,8 @@ void UBTService_FindNearestPlayer::TickNode(UBehaviorTreeComponent& OwnerComp, u
 	AActor* ClosestActor = nullptr;
 	for (auto *Actor:ActorsWithTag)
 	{
+		if (!IsValid(Actor) || (Actor->Implements<UCombatInterface>() && ICombatInterface::Execute_IsDead(Actor))
+			|| !ADungeonRunDirector::AllowsCombat(OwningPawn, Actor)) continue;
 		float Distance = OwningPawn->GetDistanceTo(Actor);
 		if (Distance < ClosestDistance)
 		{

@@ -122,7 +122,7 @@ FOnDeathSignature & ABaseCharacter::GetOnDeathDelegate()
 void ABaseCharacter::Die(const FVector& DeathImpulse)
 {
 	TerrainStatus->ClearTerrainEffects();
-	Weapon->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld, true));
+	if (DetachWeaponOnDeath()) Weapon->DetachFromComponent(FDetachmentTransformRules(EDetachmentRule::KeepWorld, true));
 	MulticastHandleDeath(DeathImpulse);
 }
 
@@ -131,10 +131,13 @@ void ABaseCharacter::MulticastHandleDeath_Implementation(const FVector& DeathImp
 	UGameplayStatics::PlaySoundAtLocation(this, DeathSound, GetActorLocation(), GetActorRotation());
 
 
-	Weapon->SetSimulatePhysics(true);	
-	Weapon->SetEnableGravity(true);
-	Weapon->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
-	Weapon->AddImpulse(DeathImpulse * 0.1f, NAME_None, true);
+	if (DetachWeaponOnDeath())
+	{
+		Weapon->SetSimulatePhysics(true);
+		Weapon->SetEnableGravity(true);
+		Weapon->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+		Weapon->AddImpulse(DeathImpulse * 0.1f, NAME_None, true);
+	}
 
 
 	GetMesh()->SetSimulatePhysics(true);

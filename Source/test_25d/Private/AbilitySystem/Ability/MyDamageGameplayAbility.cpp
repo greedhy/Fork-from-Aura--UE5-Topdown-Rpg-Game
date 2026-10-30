@@ -6,6 +6,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include"AbilitySystemComponent.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
+#include "Roguelike/DungeonRunDirector.h"
 
 void UMyDamageGameplayAbility::SetOffensiveAttackTarget(AActor* TargetActor)
 {
@@ -40,18 +41,20 @@ void UMyDamageGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handl
 
 void UMyDamageGameplayAbility::CauseDamage(AActor* TargetActor)
 {
-	ReportOffensiveAttack(TargetActor);
+	if (!CurrentActorInfo || !IsValid(TargetActor) || !DamageEffectClass) return;
+	auto* SourceASC = GetAbilitySystemComponentFromActorInfo();
+	auto* TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor);
+	if (!IsValid(SourceASC) || !IsValid(TargetASC)) return;
+	const AActor* SourceAvatar = SourceASC->GetAvatarActor();
+	const AActor* TargetAvatar = TargetASC->GetAvatarActor();
+	if (!IsValid(SourceAvatar) || !IsValid(TargetAvatar)
+		|| !ADungeonRunDirector::AllowsCombat(SourceAvatar, TargetAvatar)) return;
 	FGameplayEffectSpecHandle DamageSpecHandle = MakeOutgoingGameplayEffectSpec(DamageEffectClass, 1.f);
-	//通过SetByCaller设置属性伤害
-	
-		const float ScaleDamage = Damage.GetValueAtLevel(GetAbilityLevel());
-		UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(DamageSpecHandle, DamageType, ScaleDamage);
-	
-	//将GE应用给目标
-	GetAbilitySystemComponentFromActorInfo()->ApplyGameplayEffectSpecToTarget(
-		*DamageSpecHandle.Data.Get(),
-		UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor));
-
+	if (!DamageSpecHandle.IsValid()) return;
+	ReportOffensiveAttack(TargetActor);
+	const float ScaleDamage = Damage.GetValueAtLevel(GetAbilityLevel());
+	UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(DamageSpecHandle, DamageType, ScaleDamage);
+	SourceASC->ApplyGameplayEffectSpecToTarget(*DamageSpecHandle.Data.Get(), TargetASC);
 }
 FTaggedMontage UMyDamageGameplayAbility::GetRandomTaggedMontageFromArray(const TArray<FTaggedMontage>& TaggedMontages)const 
 {

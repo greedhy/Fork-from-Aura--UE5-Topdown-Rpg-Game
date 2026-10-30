@@ -14,6 +14,7 @@ class ULevelUpInfo;
 class UAbilitySystemComponent;
 class UAttributeSet;
 class UBackpackComponent;
+class UEquipmentComponent;
 class UBackpackItemDefinitions;
 class ULoadScreenSaveGame;
 
@@ -35,6 +36,8 @@ public:
 	virtual void ClientInitialize(AController* C) override;
 	UAttributeSet* GetAttributeSet() const { return AttributeSet; }
 	UBackpackComponent* GetBackpackComponent() const { return BackpackComponent; }
+	UFUNCTION(BlueprintPure, Category="Equipment")
+	UEquipmentComponent* GetEquipmentComponent() const { return EquipmentComponent; }
 
 
 
@@ -67,7 +70,9 @@ public:
 	void SetAttributePoints(int32 InPoints);
 	void SetSpellPoints(int32 InPoints);
 
+	UFUNCTION(BlueprintPure, Category="Backpack|Persistence")
 	FBackpackSnapshot ExportBackpackSnapshot() const;
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Backpack|Persistence")
 	bool ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot);
 	void SetBackpackPersistencePlayerId(const FString& InPlayerId);
 	const FString& GetBackpackPersistencePlayerId() const { return BackpackPersistencePlayerId; }
@@ -91,6 +96,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UBackpackComponent> BackpackComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Equipment")
+	TObjectPtr<UEquipmentComponent> EquipmentComponent;
 
 	UPROPERTY()
 	FString BackpackPersistencePlayerId;

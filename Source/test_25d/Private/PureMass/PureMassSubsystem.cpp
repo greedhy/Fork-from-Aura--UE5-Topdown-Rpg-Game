@@ -94,6 +94,7 @@ int32 UPureMassSubsystem::SpawnMonster(UPureMassMonsterType* Type, FVector Locat
         || !FMath::IsFinite(Type->Radius) || !FMath::IsFinite(Type->HalfHeight)
         || Type->Radius <= 0 || Type->HalfHeight < Type->Radius
         || !FMath::IsFinite(Type->Health) || Type->Health <= 0 || NextId > MAX_int32) return INDEX_NONE;
+    if (!IsInsideRoom(Room, Location, Type->Radius)) return INDEX_NONE;
     FMassEntityManager& Manager = Mass->GetMutableEntityManager();
     if (Manager.IsProcessing()) return INDEX_NONE;
     // Authoring locations are capsule centres. Snap the corresponding feet to navmesh when available.
@@ -104,6 +105,8 @@ int32 UPureMassSubsystem::SpawnMonster(UPureMassMonsterType* Type, FVector Locat
             FVector(Type->Radius*2, Type->Radius*2, FMath::Max(200.f, Type->HalfHeight*2))))
             Location = Projected.Location + FVector(0,0,Type->HalfHeight + 1.f);
     }
+    // Navigation projection can move a valid candidate across a room boundary.
+    if (!IsInsideRoom(Room, Location, Type->Radius)) return INDEX_NONE;
     const FMassEntityHandle Handle = Manager.CreateEntity(Archetype);
     FPureMassFragment& Fragment = Manager.GetFragmentDataChecked<FPureMassFragment>(Handle);
     Fragment.Id = int32(NextId++);
@@ -112,6 +115,7 @@ int32 UPureMassSubsystem::SpawnMonster(UPureMassMonsterType* Type, FVector Locat
     Fragment.Room = Room;
     Fragment.Health = Fragment.MaxHealth = Type->Health;
     Entities.Add(Fragment.Id, Handle);
+    EntityRooms.Add(Fragment.Id, Room);
     RetainedTypes.AddUnique(Type);
     LargestRadius = FMath::Max(LargestRadius, Type->Radius);
     LargestHalfHeight = FMath::Max(LargestHalfHeight, Type->HalfHeight);
@@ -224,7 +228,7 @@ float UPureMassSubsystem::EvaluateDamage(const FPureMassFragment& Fragment, cons
 }
 float UPureMassSubsystem::DamageFragment(FPureMassFragment& Fragment, float Amount, AActor* Source, bool bBlocked, bool bCritical)
 {
-    if (Fragment.Health <= 0) return 0;
+    if (Fragment.Health <= 0 || !IsRoomDamageSourceAllowed(Fragment.Room, Source)) return 0;
     const float Removed = FMath::Min(Fragment.Health, FinitePositive(Amount));
     if (Removed <= 0) return 0;
     Fragment.Health -= Removed;
@@ -239,8 +243,8 @@ float UPureMassSubsystem::DamageFragment(FPureMassFragment& Fragment, float Amou
     Fragment.State = 3; Fragment.Velocity = FVector::ZeroVector;
     const int32 Id = Fragment.Id;
     const int32 XP = Fragment.Type.IsValid() ? FMath::Max(0, Fragment.Type->XPReward) : 0;
-    Views.Remove(Id); Grid.Remove(Id); Dead.AddUnique(Id); ++DeathCount;
-    // Publish death before sending any external event: reentrant damage cannot award twice.
+    RemoveMonsterInternal(Id, EPureMassRemovalReason::Killed);
+    // Removal tombstones the target before callbacks or XP; reentrant damage cannot award twice.
     if (IsValid(Source) && XP > 0 && UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Source))
     {
         FGameplayEventData Payload;
@@ -259,6 +263,7 @@ float UPureMassSubsystem::ApplyDamage(int32 Id, const FPureMassDamage& Damage)
     FMassEntityManager& Manager = Mass->GetMutableEntityManager();
     if (!Manager.IsEntityValid(Handle)) return 0;
     FPureMassFragment& Fragment = Manager.GetFragmentDataChecked<FPureMassFragment>(Handle);
+    if (!IsRoomDamageSourceAllowed(Fragment.Room, Damage.Source.Get())) return 0;
     if (Damage.StatusDuration > 0 && FMath::IsFinite(Damage.StatusDuration))
     {
         Fragment.StatusRemaining = FMath::Max(Fragment.StatusRemaining, Damage.StatusDuration);
@@ -378,7 +383,9 @@ void UPureMassSubsystem::AttackPlayer(FPureMassFragment& Fragment, APawn* Player
 void UPureMassSubsystem::Move(FPureMassFragment& Fragment, FVector Delta)
 {
     const UPureMassMonsterType* Type = Fragment.Type.Get();
-    if (!Type || Delta.IsNearlyZero()) return;
+    if (!Type) return;
+    Delta = ConstrainToRoom(Fragment.Room, Fragment.Location + Delta, Type->Radius) - Fragment.Location;
+    if (Delta.IsNearlyZero()) return;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(PureMassMovement), false);
     // Spell volumes are hit queries, never obstacles that depenetrate a monster capsule.
     FCollisionResponseParams Responses;
@@ -408,6 +415,8 @@ void UPureMassSubsystem::Move(FPureMassFragment& Fragment, FVector Delta)
         if (!GetWorld()->SweepSingleByChannel(Vertical, Position, Grounded, FQuat::Identity, ECC_Pawn, Shape, Params, Responses)) Position = Grounded;
         else if (!Vertical.bStartPenetrating) Position += (Grounded - Position) * Vertical.Time;
     }
+    // Sliding/depenetration must respect the room too, not only the original desired endpoint.
+    Position = ConstrainToRoom(Fragment.Room, Position, Type->Radius);
     Fragment.Velocity = (Position - Fragment.Location) / FMath::Max(DeltaTime, UE_SMALL_NUMBER);
     Fragment.Location = Position;
 }
@@ -416,6 +425,7 @@ void UPureMassSubsystem::UpdateMonster(FPureMassFragment& Fragment)
 {
     UPureMassMonsterType* Type = Fragment.Type.Get();
     if (!Type || Fragment.Health <= 0) return;
+    Fragment.Location = ConstrainToRoom(Fragment.Room, Fragment.Location, Type->Radius);
     Fragment.AttackRemaining = FMath::Max(0.f, Fragment.AttackRemaining - DeltaTime);
     Fragment.AttackVisualRemaining = FMath::Max(0.f, Fragment.AttackVisualRemaining - DeltaTime);
     Fragment.RootRemaining = FMath::Max(0.f, Fragment.RootRemaining - DeltaTime);
@@ -436,12 +446,16 @@ void UPureMassSubsystem::UpdateMonster(FPureMassFragment& Fragment)
     APawn* Target = nullptr;
     double Nearest = TNumericLimits<double>::Max();
     for (const auto& Weak : Players)
-        if (APawn* Player = Weak.Get(); Alive(Player))
+        if (APawn* Player = Weak.Get(); Alive(Player) && IsInsideRoom(Fragment.Room, Player->GetActorLocation()))
         {
             const double Distance = FVector::DistSquared(Fragment.Location, Player->GetActorLocation());
             if (Distance < Nearest) { Nearest = Distance; Target = Player; }
         }
-    if (!Target) { Publish(Fragment); return; }
+    if (!Target)
+    {
+        if (RoomBounds.Contains(Fragment.Room)) { Fragment.Path.Reset(); Fragment.PathPoint = 0; }
+        Publish(Fragment); return;
+    }
     const FVector Goal = Target->GetActorLocation();
     if (Nearest <= FMath::Square(FinitePositive(Type->AttackRange)))
     {
@@ -523,7 +537,14 @@ void UPureMassSubsystem::FinishUpdate()
 {
     if (!Mass || !IsAuthority()) return;
     FMassEntityManager& Manager = Mass->GetMutableEntityManager();
-    for (int32 Id : Dead)
+    TArray<int32> Unexpected;
+    for (const auto& Pair : Entities)
+        if (Views.Contains(Pair.Key) && !Manager.IsEntityValid(Pair.Value)) Unexpected.Add(Pair.Key);
+    // Do not invoke callbacks while iterating mutable registries.
+    for (int32 Id : Unexpected) RemoveMonsterInternal(Id, EPureMassRemovalReason::Unexpected);
+    TArray<int32> PendingDestruction = MoveTemp(Dead);
+    Dead.Reset();
+    for (int32 Id : PendingDestruction)
     {
         FMassEntityHandle Handle;
         if (Entities.RemoveAndCopyValue(Id, Handle) && Manager.IsEntityValid(Handle))
@@ -532,7 +553,6 @@ void UPureMassSubsystem::FinishUpdate()
             else Manager.DestroyEntity(Handle);
         }
     }
-    Dead.Reset();
 }
 void UPureMassSubsystem::Deinitialize()
 {
@@ -542,8 +562,89 @@ void UPureMassSubsystem::Deinitialize()
     bEnabled = false;
     // Mass owns destruction. World teardown can destroy its manager before this subsystem.
     Mass = nullptr; Archetype = FMassArchetypeHandle();
-    Entities.Reset(); Views.Reset(); Grid.Reset(); RetainedTypes.Reset();
+    Entities.Reset(); EntityRooms.Reset(); RoomBounds.Reset(); Views.Reset(); Grid.Reset(); RetainedTypes.Reset();
+    OnMonsterRemoved.Clear();
     Players.Reset(); Terrain.Reset(); Dead.Reset();
     Super::Deinitialize();
 }
 
+bool UPureMassSubsystem::RemoveMonster(int32 Id, EPureMassRemovalReason Reason)
+{
+    check(IsInGameThread());
+    if (!bEnabled || !IsAuthority() || !Mass || Id <= 0
+        || (Reason != EPureMassRemovalReason::Recycled && Reason != EPureMassRemovalReason::Unexpected)) return false;
+    // A caller arriving before the next maintenance step cannot disguise external destruction as cleanup.
+    if (!Mass->GetEntityManager().IsEntityValid(GetEntity(Id))) Reason = EPureMassRemovalReason::Unexpected;
+    return RemoveMonsterInternal(Id, Reason);
+}
+
+bool UPureMassSubsystem::RemoveMonsterInternal(int32 Id, EPureMassRemovalReason Reason)
+{
+    if (!bEnabled || !IsAuthority() || !Mass || !Views.Contains(Id)) return false;
+    const FName Room = EntityRooms.FindRef(Id);
+    auto& Manager = Mass->GetMutableEntityManager();
+    const FMassEntityHandle Handle = GetEntity(Id);
+    if (Manager.IsEntityValid(Handle))
+    {
+        FPureMassFragment& Fragment = Manager.GetFragmentDataChecked<FPureMassFragment>(Handle);
+        Fragment.Health = 0.f;
+        Fragment.State = 3;
+        Fragment.Velocity = FVector::ZeroVector;
+        Fragment.Path.Reset();
+    }
+    Views.Remove(Id);
+    Grid.Remove(Id);
+    EntityRooms.Remove(Id);
+    Dead.AddUnique(Id);
+    if (Reason == EPureMassRemovalReason::Killed) ++DeathCount;
+    // Physical destruction remains deferred: this notification can occur inside a Mass chunk callback.
+    OnMonsterRemoved.Broadcast(Id, Room, Reason);
+    return true;
+}
+
+bool UPureMassSubsystem::SetRoomBounds(FName Room, FVector Center, FVector Extent)
+{
+    check(IsInGameThread());
+    if (!IsAuthority() || Room.IsNone() || Center.ContainsNaN() || Extent.ContainsNaN()
+        || Extent.X <= 0.0 || Extent.Y <= 0.0 || Extent.Z <= 0.0) return false;
+    const FBox Bounds(Center - Extent, Center + Extent);
+    if (Bounds.Min.ContainsNaN() || Bounds.Max.ContainsNaN()) return false;
+    // A policy update must never create an impossible clamp for a living capsule.
+    for (const auto& Pair : EntityRooms)
+        if (Pair.Value == Room)
+            if (const FPureMassView* View = Views.Find(Pair.Key); View && View->Type
+                && (View->Type->Radius > Extent.X || View->Type->Radius > Extent.Y)) return false;
+    RoomBounds.Add(Room, Bounds);
+    return true;
+}
+
+void UPureMassSubsystem::ClearRoomBounds(FName Room)
+{
+    check(IsInGameThread());
+    if (IsAuthority()) RoomBounds.Remove(Room);
+}
+
+bool UPureMassSubsystem::IsInsideRoom(FName Room, FVector Location, float Radius) const
+{
+    const FBox* Bounds = RoomBounds.Find(Room);
+    if (!Bounds) return true;
+    if (Location.ContainsNaN() || !FMath::IsFinite(Radius) || Radius < 0.f) return false;
+    return Location.X >= Bounds->Min.X + Radius && Location.X <= Bounds->Max.X - Radius
+        && Location.Y >= Bounds->Min.Y + Radius && Location.Y <= Bounds->Max.Y - Radius;
+}
+
+bool UPureMassSubsystem::IsRoomDamageSourceAllowed(FName Room, const AActor* Source) const
+{
+    if (!RoomBounds.Contains(Room) || !IsValid(Source)) return true;
+    return Source->GetWorld() == GetWorld() && IsInsideRoom(Room, Source->GetActorLocation());
+}
+
+FVector UPureMassSubsystem::ConstrainToRoom(FName Room, FVector Location, float Radius) const
+{
+    if (const FBox* Bounds = RoomBounds.Find(Room))
+    {
+        Location.X = FMath::Clamp(Location.X, Bounds->Min.X + Radius, Bounds->Max.X - Radius);
+        Location.Y = FMath::Clamp(Location.Y, Bounds->Min.Y + Radius, Bounds->Max.Y - Radius);
+    }
+    return Location;
+}

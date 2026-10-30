@@ -1,4 +1,6 @@
 #include "Backpack/WorldPickupComponent.h"
+#include "Equipment/EquipmentSoulPickup.h"
+#include "Equipment/EquipmentGenerator.h"
 #include "Backpack/BackpackComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Pawn.h"
@@ -38,10 +40,12 @@ void UWorldPickupComponent::ConfigureOwnerForNetworkedPickup(AActor* PickupActor
 	}
 }
 
-void UWorldPickupComponent::ConfigurePickup(const FPrimaryAssetId& InItemDefinitionId, int32 InQuantity, bool bInForceInteract)
+void UWorldPickupComponent::ConfigurePickup(const FPrimaryAssetId& InItemDefinitionId, int32 InQuantity, bool bInForceInteract, const FEquipmentRollData* ExistingRoll)
 {
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
+		ItemInstanceId.Invalidate();
+        RollData = ExistingRoll ? *ExistingRoll : FEquipmentRollData();
 		ItemDefinitionId = InItemDefinitionId;
 		Quantity = FMath::Max(1, InQuantity);
 		bForceInteract = bInForceInteract;
@@ -58,16 +62,33 @@ void UWorldPickupComponent::ResolveDefinition()
 		{
 			ItemDefinitionId = Definition->ItemDefinitionId;
 			PickupMode = Definition->PickupMode;
+            if (Definition->bRandomizedEquipment && RollData.GenerationVersion == 0)
+            {
+                FString Error;
+                if (!FEquipmentGenerator::Generate(*ItemDefinitions, *Definition, 0, FMath::Rand(), RollData, Error))
+                    UE_LOG(LogTemp, Warning, TEXT("Cannot generate pickup %s: %s"), *ItemDefinitionId.ToString(), *Error);
+            }
+            if (Definition->bEquippable && !ItemInstanceId.IsValid()) ItemInstanceId = FGuid::NewGuid();
 		}
 	}
 }
 
 bool UWorldPickupComponent::TryPickup(AMyPlayerState* PlayerState)
 {
-	if (!GetOwner()->HasAuthority() || !IsValid(PlayerState) || !ItemDefinitionId.IsValid() || Quantity <= 0)
+	if (bPickupInProgress || !GetOwner()->HasAuthority() || !IsValid(PlayerState) || !ItemDefinitionId.IsValid() || Quantity <= 0)
 	{
 		return false;
 	}
+	if (const auto* Soul = Cast<AEquipmentSoulPickup>(GetOwner()); Soul && !Soul->CanPlayerPickup(PlayerState)) return false;
+	TGuardValue<bool> PickupGuard(bPickupInProgress, true);
+ const auto* Definition = PlayerState->GetBackpackComponent()->ItemDefinitions ? PlayerState->GetBackpackComponent()->ItemDefinitions->FindDefinition(ItemDefinitionId) : nullptr;
+ if (Definition && Definition->bEquippable)
+ {
+  if (Quantity != 1) return false;
+  if (!ItemInstanceId.IsValid()) ItemInstanceId = FGuid::NewGuid();
+  if (!PlayerState->GetBackpackComponent()->TryAddExistingItem(ItemDefinitionId, ItemInstanceId, RollData)) return false;
+  Quantity = 0; OnPickedUp.Broadcast(); GetOwner()->Destroy(); return true;
+ }
 	const FInventoryAddResult Result = PlayerState->GetBackpackComponent()->TryAddItem(ItemDefinitionId, Quantity);
 	if (Result.AcceptedQuantity <= 0)
 	{
@@ -115,6 +136,8 @@ void UWorldPickupComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UWorldPickupComponent, ItemDefinitionId);
 	DOREPLIFETIME(UWorldPickupComponent, Quantity);
+	DOREPLIFETIME(UWorldPickupComponent, ItemInstanceId);
+ DOREPLIFETIME(UWorldPickupComponent, RollData);
 	DOREPLIFETIME(UWorldPickupComponent, PickupMode);
 	DOREPLIFETIME(UWorldPickupComponent, bForceInteract);
 }

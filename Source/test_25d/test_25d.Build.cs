@@ -15,6 +15,7 @@ public class test_25d : ModuleRules
         PrivateDependencyModuleNames.AddRange(new string[] { "GameplayTags", "GameplayTasks", "NavigationSystem", "Niagara", "AIModule", "UMG", "Slate", "OnlineSubsystemUtils" });
         DynamicallyLoadedModuleNames.Add("OnlineSubsystemNull");
         PrivateDependencyModuleNames.Add("Json");
+        PrivateDependencyModuleNames.Add("ProceduralMeshComponent");
         PublicDependencyModuleNames.Add("MassEntity");
         PublicDependencyModuleNames.Add("MassCore");
         PrivateDependencyModuleNames.Add("MassSimulation");

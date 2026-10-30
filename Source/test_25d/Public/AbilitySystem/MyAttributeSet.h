@@ -242,6 +242,8 @@ public:
 	void OnRep_MaxMana(const FGameplayAttributeData& OldMaxMana) const;
 	ATTRIBUTE_ACCESSORS(UMyAttributeSet, MaxMana);
 
+public:
+ bool bEquipmentChanging = false;
 private:
 	void ShowFloatingText(const FEffectProperties& Props,float Damage,bool bBlockHit,bool bCriticalHit) const;
 

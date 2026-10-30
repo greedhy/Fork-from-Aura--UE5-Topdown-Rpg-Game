@@ -33,10 +33,21 @@ public:
 	virtual void InitAbilityActorInfo() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out) const override;
+	// Floor-owned pooling is opt-in; ordinary enemies retain their original death path.
+	void EnableDungeonPooling(float CorpseSeconds = 1.5f);
+	void SleepForDungeonPool(bool bKeepCorpse = false);
+	bool CanFinishPoolReturn() const;
+	bool HasPreparedPoolReturn() const { return bPoolResetDone; }
+	bool WakeFromDungeonPool(const FTransform& Transform, FName Room);
+	bool IsDungeonPoolSleeping() const { return DungeonPoolLife < 0; }
+	/** Read-only diagnostic: zero = unmanaged, positive = live lease, negative = retired lease. */
+	UFUNCTION(BlueprintPure, Category="Dungeon Pool") int32 GetDungeonPoolLease() const { return DungeonPoolLife; }
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mass Monsters")
 	FName MonsterRoomId;
 	virtual void Die(const FVector& DeathImpulse) override;
+	virtual void MulticastHandleDeath_Implementation(const FVector& DeathImpulse) override;
 	virtual void PossessedBy(AController* NewController) override;
 
 	UPROPERTY(EditAnywhere,BlueprintReadOnly ,Category = "Character Class Defaults")
@@ -86,6 +97,28 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent)
 	void SpawnLoot();
+protected:
+	virtual void GrantEnemyAbilities();
+	// Immediately invalidate attack presentation; full GAS reset keeps its existing safe timing.
+	virtual void InvalidateEnemyAttack() {}
+	virtual void ReconcileEnemyPresentation() {}
+	virtual bool DetachWeaponOnDeath() const override { return false; }
 private:
-	
+	UFUNCTION() void OnRep_DungeonPoolLife();
+	UPROPERTY(ReplicatedUsing=OnRep_DungeonPoolLife) int32 DungeonPoolLife = 0;
+	UPROPERTY(ReplicatedUsing=OnRep_DungeonPoolLife) bool bDungeonPoolCorpse = false;
+	UPROPERTY(Replicated) FVector DungeonPoolDeathImpulse = FVector::ZeroVector;
+	FTransform PoolMeshTransform;
+	FCollisionResponseContainer PoolMeshResponses;
+	ECollisionEnabled::Type PoolMeshCollision = ECollisionEnabled::QueryOnly;
+	ECollisionEnabled::Type PoolCapsuleCollision = ECollisionEnabled::QueryAndPhysics;
+	bool bPoolRagdollApplied = false;
+	float PoolCorpseSeconds = 1.5f;
+	double PoolCorpseUntil = 0;
+	TMap<TWeakObjectPtr<UActorComponent>, bool> PoolComponentTicks;
+	TMap<FGameplayAttribute, float> PoolAttributeBases;
+	bool bPoolTickCaptured = false;
+	bool bPoolActorTick = false;
+	bool bPoolActorCollision = true;
+	bool bPoolResetDone = false;
 };

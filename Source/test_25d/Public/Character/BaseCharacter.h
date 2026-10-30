@@ -95,6 +95,7 @@ public:
 	void SetCharacterClass(ECharacterClass InClass) { CharacterClass = InClass; }
 
 protected:
+    virtual bool DetachWeaponOnDeath() const { return true; }
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat")

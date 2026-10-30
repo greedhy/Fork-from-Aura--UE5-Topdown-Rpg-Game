@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Equipment/EquipmentRollTypes.h"
 #include "Net/Serialization/FastArraySerializer.h"
 #include "ReplicatedInventory.generated.h"
 
@@ -12,6 +13,10 @@ struct FReplicatedInventorySlot : public FFastArraySerializerItem
 	UPROPERTY(BlueprintReadOnly)
 	FPrimaryAssetId ItemDefinitionId;
 
+	UPROPERTY(SaveGame, BlueprintReadOnly)
+	FGuid ItemInstanceId;
+ UPROPERTY(SaveGame, BlueprintReadOnly) FEquipmentRollData RollData;
+
 	UPROPERTY(BlueprintReadOnly)
 	int32 Quantity = 0;
 
@@ -22,7 +27,7 @@ struct FReplicatedInventorySlot : public FFastArraySerializerItem
 
 	void Clear()
 	{
-		ItemDefinitionId = FPrimaryAssetId();
+		RollData = FEquipmentRollData(); ItemInstanceId.Invalidate(); ItemDefinitionId = FPrimaryAssetId();
 		Quantity = 0;
 	}
 };

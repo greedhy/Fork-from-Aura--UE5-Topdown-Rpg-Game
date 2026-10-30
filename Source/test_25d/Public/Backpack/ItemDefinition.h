@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Engine/DataTable.h"
+#include "GameplayTagContainer.h"
 #include "ItemDefinition.generated.h"
 
 class UGameplayEffect;
@@ -17,7 +19,7 @@ enum class EPickupMode : uint8
 };
 
 USTRUCT(BlueprintType)
-struct FBackpackItemDefEntry
+struct FBackpackItemDefEntry : public FTableRowBase
 {
 	GENERATED_BODY()
 
@@ -45,6 +47,17 @@ struct FBackpackItemDefEntry
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stacking", meta = (ClampMin = "1"))
 	int32 MaxStack = 1;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+ bool bEquippable = false;
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment") bool bRandomizedEquipment = false;
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment") FName GenerationProfile;
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+ FGameplayTagContainer AllowedEquipmentSlots;
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment")
+ TSubclassOf<class UEquipmentGameplayEffect> EquipEffect;
+ UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Equipment", meta=(ClampMin="1"))
+ float EquipEffectLevel = 1.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Use")
 	bool bUsable = false;
 
@@ -63,6 +76,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
 	TArray<FBackpackItemDefEntry> Items;
+	/** Equipment rows override matching legacy entries; IDs must be unique in this table. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item", meta=(RequiredAssetDataTags="RowStructure=/Script/test_25d.BackpackItemDefEntry"))
+	TObjectPtr<UDataTable> EquipmentTable;
+ UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment") TObjectPtr<UDataTable> GenerationProfiles;
+ UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment") TObjectPtr<UDataTable> Rarities;
+ UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment") TObjectPtr<UDataTable> Affixes;
 };
 
 UCLASS(BlueprintType)

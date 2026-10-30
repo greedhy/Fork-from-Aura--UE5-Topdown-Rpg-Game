@@ -20,6 +20,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 	}
 
 	const FPrimaryAssetId ItemDefinitionId = Definition->GetPrimaryAssetId();
+    if (const auto* Entry=FindItemDefinition(ItemDefinitionId); Entry && Entry->bRandomizedEquipment) return Result;
 	const int32 StackLimit = Definition->bStackable ? FMath::Max(1, Definition->MaxStack) : 1;
 	ItemDefinitions.FindOrAdd(ItemDefinitionId) = const_cast<UItemDefinition*>(Definition);
 	for (FInventorySlot& Slot : Slots)
@@ -51,6 +52,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const UItemDefinition* Definitio
 		const int32 Accepted = FMath::Min(StackLimit, Result.RemainingQuantity);
 		Slot.ItemDefinitionId = ItemDefinitionId;
 		Slot.Quantity = Accepted;
+		Slot.ItemInstanceId = FGuid::NewGuid();
 		Result.AcceptedQuantity += Accepted;
 		Result.RemainingQuantity -= Accepted;
 		if (Result.RemainingQuantity == 0)
@@ -72,7 +74,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const FPrimaryAssetId& ItemDefin
 	FInventoryAddResult Result;
 	Result.RemainingQuantity = FMath::Max(Quantity, 0);
 	const FBackpackItemDefEntry* Definition = FindItemDefinition(ItemDefinitionId);
-	if (!Definition || Result.RemainingQuantity == 0)
+	if (!Definition || Definition->bRandomizedEquipment || Result.RemainingQuantity == 0 || (Definition->bEquippable && (Definition->bStackable || Definition->MaxStack != 1)))
 	{
 		return Result;
 	}
@@ -107,6 +109,7 @@ FInventoryAddResult UInventoryModel::TryAddItem(const FPrimaryAssetId& ItemDefin
 		const int32 Accepted = FMath::Min(StackLimit, Result.RemainingQuantity);
 		Slot.ItemDefinitionId = ItemDefinitionId;
 		Slot.Quantity = Accepted;
+		Slot.ItemInstanceId = FGuid::NewGuid();
 		Result.AcceptedQuantity += Accepted;
 		Result.RemainingQuantity -= Accepted;
 		if (Result.RemainingQuantity == 0)
@@ -142,7 +145,7 @@ bool UInventoryModel::UseItemAt(int32 SlotIndex)
 
 	const FBackpackItemDefEntry* CatalogDefinition = FindItemDefinition(Slots[SlotIndex].ItemDefinitionId);
 	UItemDefinition* LegacyDefinition = ItemDefinitions.FindRef(Slots[SlotIndex].ItemDefinitionId);
-	if ((CatalogDefinition && !CatalogDefinition->bUsable) || (!CatalogDefinition && (!IsValid(LegacyDefinition) || !LegacyDefinition->bUsable)))
+	if ((CatalogDefinition && (CatalogDefinition->bEquippable || !CatalogDefinition->bUsable)) || (!CatalogDefinition && (!IsValid(LegacyDefinition) || !LegacyDefinition->bUsable)))
 	{
 		return false;
 	}
@@ -219,7 +222,7 @@ bool UInventoryModel::SwapSlots(int32 IndexA, int32 IndexB)
 	return true;
 }
 
-void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots)
+void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots, bool bNotify)
 {
 	const int32 ClampedMaxSlots = FMath::Max(0, NewMaxSlots);
 	const bool bMaxSlotsChanged = MaxSlots != ClampedMaxSlots;
@@ -233,6 +236,8 @@ void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot
 		{
 			LocalSlot.ItemDefinitionId = ReplicatedSlots[SlotIndex].ItemDefinitionId;
 			LocalSlot.Quantity = ReplicatedSlots[SlotIndex].Quantity;
+			LocalSlot.ItemInstanceId = ReplicatedSlots[SlotIndex].ItemInstanceId;
+            LocalSlot.RollData = ReplicatedSlots[SlotIndex].RollData;
 		}
 		else
 		{
@@ -240,6 +245,7 @@ void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot
 		}
 	}
 
+	if (!bNotify) return;
 	if (bMaxSlotsChanged)
 	{
 		OnInventoryMaxSlotsChanged.Broadcast(MaxSlots);
@@ -247,7 +253,7 @@ void UInventoryModel::ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot
 	OnInventoryUpdated.Broadcast(Slots);
 }
 
-void UInventoryModel::SetMaxSlots(int32 NewMaxSlots)
+void UInventoryModel::SetMaxSlots(int32 NewMaxSlots, bool bNotify)
 {
     const int32 ClampedMaxSlots = FMath::Max(0, NewMaxSlots);
     if (ClampedMaxSlots == MaxSlots && Slots.Num() == ClampedMaxSlots)

@@ -27,6 +27,7 @@ public:
 	void Initialize();
 	FInventoryAddResult TryAddItem(const UItemDefinition* Definition, int32 Quantity);
 	FInventoryAddResult TryAddItem(const FPrimaryAssetId& ItemDefinitionId, int32 Quantity);
+	bool TryAddExistingItem(const FPrimaryAssetId& Id, const FGuid& InstanceId, const FEquipmentRollData& RollData = FEquipmentRollData());
 	void SetItemDefinitions(UBackpackItemDefinitions* InItemDefinitions);
 	static void ConfigureSpawnedPickupActor(AActor* PickupActor);
 	bool DropWholeStack(int32 SlotIndex, const FVector& SpawnLocation);
@@ -54,6 +55,8 @@ public:
 	TObjectPtr<UBackpackItemDefinitions> ItemDefinitions;
 
 private:
+	friend class UEquipmentComponent;
+	bool bEquipmentMutation = false;
 	UFUNCTION()
 	void OnRep_Inventory();
 

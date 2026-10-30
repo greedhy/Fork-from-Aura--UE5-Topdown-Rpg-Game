@@ -36,6 +36,7 @@ class TEST_25D_API AMyPlayerController : public APlayerController
 	
 public:
 	AMyPlayerController();
+ AActor* GetFocusedEquipmentPickup() const { return FocusedEquipmentPickup.Get(); }
 	virtual void PlayerTick(float DeltaTime) override;
 	virtual void ReceivedPlayer() override;
 	virtual void AcknowledgePossession(APawn* P) override;
@@ -99,8 +100,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> BackpackWidget;
+	UPROPERTY(Transient)
+	TObjectPtr<class UEquipmentPanel> EquipmentWidget;
 
 	bool bBackpackUIOpen = false;
+ TWeakObjectPtr<AActor> FocusedEquipmentPickup;
+ float EquipmentFocusElapsed = 0.f;
 
 	void Move(const FInputActionValue& InputActionValue);
 	void CursorTrace();

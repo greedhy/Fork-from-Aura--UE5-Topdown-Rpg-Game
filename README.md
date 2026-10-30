@@ -4,6 +4,8 @@
 
 基础角色、GAS 框架与课程素材来自原项目；下文重点展示在此基础上完成的扩展工作。
 
+后续怪物新增与改造统一遵循 [怪物开发规范](docs/monster-development-standard.md)：复用 ASC/AI，适配对象池死亡与复用流程，并为每次攻击配置感叹号或红色实际作用范围预警。
+
 [快速试玩](#快速试玩) · [主要功能清单](docs/project-feature-catalog.md) · [GA 制作与调用全流程](docs/ga-production-and-runtime-guide.md) · [Mass 实现](#mass-怪物与混合战斗) · [开发文档](#开发文档)
 
 ![地牢迷宫中的 Mass Goblin 与 Actor 玩家](docs/images/mass-goblins.png)

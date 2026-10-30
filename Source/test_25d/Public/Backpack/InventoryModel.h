@@ -1,8 +1,9 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Equipment/EquipmentRollTypes.h"
 #include "UObject/Object.h"
 #include "Backpack/ReplicatedInventory.h"
 #include "InventoryModel.generated.h"
@@ -47,6 +48,10 @@ struct FInventorySlot
     UPROPERTY(BlueprintReadOnly)
     FPrimaryAssetId ItemDefinitionId;
 
+	UPROPERTY(SaveGame, BlueprintReadOnly)
+	FGuid ItemInstanceId;
+ UPROPERTY(SaveGame, BlueprintReadOnly) FEquipmentRollData RollData;
+
     UPROPERTY(BlueprintReadOnly)
     int32 Quantity = 0;
 
@@ -57,7 +62,7 @@ struct FInventorySlot
 
     void Clear()
     {
-        ItemDefinitionId = FPrimaryAssetId();
+        RollData = FEquipmentRollData(); ItemInstanceId.Invalidate(); ItemDefinitionId = FPrimaryAssetId();
         Quantity = 0;
     }
 };
@@ -96,7 +101,7 @@ public:
 	const FBackpackItemDefEntry* FindItemDefinition(const FPrimaryAssetId& ItemDefinitionId) const;
 	bool UseItemAt(int32 SlotIndex);
 	bool SwapSlots(int32 IndexA, int32 IndexB);
-	void ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots);
+	void ApplyReplicatedSlots(const TArray<FReplicatedInventorySlot>& ReplicatedSlots, int32 NewMaxSlots, bool bNotify = true);
 
     // InventoryModel.h 新增
     void DeleteItem(FName ItemID, int32 Count);
@@ -117,8 +122,9 @@ public:
 
 private:
 	friend class UBackpackComponent;
+	friend class UEquipmentComponent;
 
-	void SetMaxSlots(int32 NewMaxSlots);
+	void SetMaxSlots(int32 NewMaxSlots, bool bNotify = true);
 
     UPROPERTY()
     TArray<FInventorySlot> Slots;

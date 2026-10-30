@@ -1,5 +1,6 @@
 #include "PureMass/PureMassCombatTarget.h"
 #include "PureMass/PureMassSubsystem.h"
+#include "Roguelike/DungeonRunDirector.h"
 #include "AbilitySystem/Prototypes/PrototypeRuntime.h"
 #include "Interface/CombatInterface.h"
 #include "Engine/World.h"
@@ -38,7 +39,8 @@ bool PureMassCombat::Resolve(UWorld* World, AActor* Caster, const FPureMassComba
     {
         AActor* Actor = Target.Actor.Get();
         if (Target.EntityId != INDEX_NONE || !IsValid(Actor) || Actor->GetWorld() != World
-            || !APrototypeRuntime::IsEnemy(Caster, Actor)) return false;
+            || !APrototypeRuntime::IsEnemy(Caster, Actor)
+            || !ADungeonRunDirector::AllowsCombat(Caster, Actor)) return false;
         OutLocation = Actor->GetActorLocation();
         return !OutLocation.ContainsNaN();
     }

@@ -134,6 +134,7 @@ void UMyAttributeSet::SetEffectProperties(const struct FGameplayEffectModCallbac
 void UMyAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
 {
 	Super::PostAttributeChange(Attribute, OldValue, NewValue);
+	if (bEquipmentChanging) return;
 
 	if (Attribute == GetMaxHealthAttribute() && bTopOffHealth)
 	{

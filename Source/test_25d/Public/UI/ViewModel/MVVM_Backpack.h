@@ -90,6 +90,9 @@ public:
     UFUNCTION(BlueprintPure, FieldNotify)
     FText GetSelectedItemName() const;
 
+    UFUNCTION(BlueprintPure, FieldNotify)
+    FText GetSelectedItemDescription() const;
+
     UFUNCTION(BlueprintPure, FieldNotify, Category = "Inventory|Selection")
     FText GetSelectedStackText() const { return HasSelectedItem() ? FText::AsNumber(Model->GetSlots()[CurrentSelectedIndex].Quantity) : FText::GetEmpty(); }
 

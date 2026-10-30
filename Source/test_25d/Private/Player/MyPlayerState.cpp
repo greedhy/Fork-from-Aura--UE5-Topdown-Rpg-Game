@@ -4,6 +4,9 @@
 #include "Player/MyPlayerState.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
 #include "Backpack/BackpackComponent.h"
+#include "Backpack/ItemDefinition.h"
+#include "Equipment/EquipmentComponent.h"
+#include "Equipment/EquipmentGenerator.h"
 #include <Net/UnrealNetwork.h>
 
 #include "AbilitySystem/MyAttributeSet.h"
@@ -20,6 +23,7 @@ AMyPlayerState::AMyPlayerState()
 
 	AttributeSet = CreateDefaultSubobject<UMyAttributeSet>("AttributeSet");
 	BackpackComponent = CreateDefaultSubobject<UBackpackComponent>("BackpackComponent");
+	EquipmentComponent = CreateDefaultSubobject<UEquipmentComponent>("EquipmentComponent");
 
 }
 
@@ -134,6 +138,8 @@ FBackpackSnapshot AMyPlayerState::ExportBackpackSnapshot() const
 		return Snapshot;
 	}
 
+	Snapshot.Equipment = EquipmentComponent->Slots;
+	Snapshot.EquipmentRevision = EquipmentComponent->Revision;
 	Snapshot.Capacity = BackpackComponent->GetCapacity();
 	Snapshot.Revision = BackpackComponent->GetRevision();
 	const TArray<FReplicatedInventorySlot>& ReplicatedSlots = BackpackComponent->GetReplicatedSlots().Items;
@@ -142,6 +148,8 @@ FBackpackSnapshot AMyPlayerState::ExportBackpackSnapshot() const
 	{
 		Snapshot.Slots[SlotIndex].ItemDefinitionId = ReplicatedSlots[SlotIndex].ItemDefinitionId;
 		Snapshot.Slots[SlotIndex].Quantity = ReplicatedSlots[SlotIndex].Quantity;
+		Snapshot.Slots[SlotIndex].ItemInstanceId = ReplicatedSlots[SlotIndex].ItemInstanceId;
+        Snapshot.Slots[SlotIndex].RollData = ReplicatedSlots[SlotIndex].RollData;
 	}
 	return Snapshot;
 }
@@ -153,19 +161,34 @@ bool AMyPlayerState::ImportBackpackSnapshot(const FBackpackSnapshot& Snapshot)
 		return false;
 	}
 
-	TArray<FReplicatedInventorySlot> ReplicatedSlots;
+	if (!BackpackComponent->ItemDefinitions && BackpackItemDefinitions) BackpackComponent->SetItemDefinitions(BackpackItemDefinitions);
+ if (!EquipmentComponent->ValidateRecords(Snapshot.Equipment)) return false;
+ TSet<FGuid> Seen;
+ for (const auto& S : Snapshot.Equipment) Seen.Add(S.ItemInstanceId);
+ TArray<FReplicatedInventorySlot> ReplicatedSlots;
 	ReplicatedSlots.SetNum(Snapshot.Slots.Num());
 	for (int32 SlotIndex = 0; SlotIndex < Snapshot.Slots.Num(); ++SlotIndex)
 	{
 		FReplicatedInventorySlot& ReplicatedSlot = ReplicatedSlots[SlotIndex];
 		const FBackpackSnapshotSlot& SavedSlot = Snapshot.Slots[SlotIndex];
+        if (!FEquipmentGenerator::ValidateRoll(SavedSlot.RollData) || (SavedSlot.IsEmpty() && SavedSlot.RollData.GenerationVersion != 0)) return false;
+        if (SavedSlot.Quantity < 0 || (SavedSlot.ItemDefinitionId.IsValid() != (SavedSlot.Quantity > 0))) return false;
 		if (!SavedSlot.IsEmpty())
 		{
 			ReplicatedSlot.ItemDefinitionId = SavedSlot.ItemDefinitionId;
 			ReplicatedSlot.Quantity = SavedSlot.Quantity;
+            ReplicatedSlot.RollData = SavedSlot.RollData;
+   ReplicatedSlot.ItemInstanceId = SavedSlot.ItemInstanceId.IsValid() ? SavedSlot.ItemInstanceId : FGuid::NewGuid();
+   if (Seen.Contains(ReplicatedSlot.ItemInstanceId)) return false;
+   Seen.Add(ReplicatedSlot.ItemInstanceId);
+   const auto* Def = BackpackComponent->ItemDefinitions ? BackpackComponent->ItemDefinitions->FindDefinition(SavedSlot.ItemDefinitionId) : nullptr;
+   if (!FEquipmentGenerator::ValidateRoll(SavedSlot.RollData)) return false;
+   if (SavedSlot.RollData.GenerationVersion > 0 && (!Def || !Def->bRandomizedEquipment || SavedSlot.RollData.ProfileId != Def->GenerationProfile)) return false;
+   if (Def && Def->bRandomizedEquipment && SavedSlot.RollData.GenerationVersion == 0) return false;
+   if (Def && Def->bEquippable && (SavedSlot.Quantity != 1 || Def->bStackable || Def->MaxStack != 1)) return false;
 		}
 	}
-	return BackpackComponent->RestorePersistentSlots(ReplicatedSlots, Snapshot.Capacity, Snapshot.Revision);
+	return EquipmentComponent->RestoreCombined(ReplicatedSlots, Snapshot.Capacity, Snapshot.Revision, Snapshot.Equipment, Snapshot.EquipmentRevision);
 }
 
 void AMyPlayerState::SetBackpackPersistencePlayerId(const FString& InPlayerId)

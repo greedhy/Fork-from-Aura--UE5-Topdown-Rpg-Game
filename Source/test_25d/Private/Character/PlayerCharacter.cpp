@@ -2,6 +2,7 @@
 
 
 #include "Character/PlayerCharacter.h"
+#include "Equipment/EquipmentComponent.h"
 #include "AbilitySystem/MyAbilitySystemComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/MyPlayerState.h"
@@ -57,6 +58,7 @@ void APlayerCharacter::PossessedBy(AController* NewController)
 
 	InitAbilityActorInfo();
 	LoadProgress();
+	if (auto* State = GetPlayerState<AMyPlayerState>()) State->GetEquipmentComponent()->ReconcileEffects();
 	//AddCharacterAbilities();
 
 	if (AMyGameModeBase* MyGameMode = Cast<AMyGameModeBase>(UGameplayStatics::GetGameMode(this)))
@@ -169,6 +171,7 @@ void APlayerCharacter::LoadProgress()
 				MyASC->UpdateAbilityStatuses(SaveData->PlayerLevel);
 			}
 		}
+		if (TravelState) TravelState->GetEquipmentComponent()->ReconcileEffects();
 		if (bFromTravel)
 		{
 			AbilitySystemComponent->SetNumericAttributeBase(UMyAttributeSet::GetHealthAttribute(), TravelState->GetTravelHealth());
@@ -349,10 +352,10 @@ void APlayerCharacter::WriteProgressToSaveData(ULoadScreenSaveGame* SaveData, co
 			SaveData->AttributePoints = MyPlayerState->GetAttributePoints();
 			SaveData->SpellPoints = MyPlayerState->GetSpellPoints();
 		}
-		SaveData->Strength = UMyAttributeSet::GetStrengthAttribute().GetNumericValue(GetAttributeSet());
-		SaveData->Intelligence = UMyAttributeSet::GetIntelligenceAttribute().GetNumericValue(GetAttributeSet());
-		SaveData->Resilience = UMyAttributeSet::GetResilienceAttribute().GetNumericValue(GetAttributeSet());
-		SaveData->Vigor = UMyAttributeSet::GetVigorAttribute().GetNumericValue(GetAttributeSet());
+		SaveData->Strength = AbilitySystemComponent->GetNumericAttributeBase(UMyAttributeSet::GetStrengthAttribute());
+		SaveData->Intelligence = AbilitySystemComponent->GetNumericAttributeBase(UMyAttributeSet::GetIntelligenceAttribute());
+		SaveData->Resilience = AbilitySystemComponent->GetNumericAttributeBase(UMyAttributeSet::GetResilienceAttribute());
+		SaveData->Vigor = AbilitySystemComponent->GetNumericAttributeBase(UMyAttributeSet::GetVigorAttribute());
 
 		SaveData->bFirstTimeLoadIn = false;
 
