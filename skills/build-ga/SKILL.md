@@ -11,7 +11,7 @@ description: Use when creating, modifying, integrating, or validating Unreal GAS
 
 ## 1. 确定本次交付
 
-先读 [项目接入地图](references/project-map.md)，定位用户指定 GA 和最相近实现，检查工作区已有变更。整理一份简短构建记录，写到 `Saved/GAAuthoring/<Ability>/<本次唯一标识>/`，包含：
+先读工程内 `docs/ga-production-and-runtime-guide.md` 的制作检查表，再读 [项目接入地图](references/project-map.md)，定位用户指定 GA 和最相近实现，检查工作区已有变更。整理一份简短构建记录，写到 `Saved/GAAuthoring/<Ability>/<本次唯一标识>/`，包含：
 
 - 操作：新建/修改/接入；内部英文标识、显示名、原型、目标 GA 路径。
 - 行为：触发、选点、目标筛选、范围/射程、伤害类型与等级曲线、消耗/冷却、空放规则、持续/取消规则、网络策略。
@@ -51,6 +51,14 @@ description: Use when creating, modifying, integrating, or validating Unreal GAS
 按 [验证与恢复](references/verification.md) 执行与变更匹配的资产检查、自动化测试和运行验证。用户要求联机时，将客户端发起、权威端单次结算和远端表现列为独立验收项。
 
 最终给出技能行为、文件/资产路径、试玩方法、测试证据，以及剩余未验证项。新技能附简短设计/实现说明；仅改参数不强制新增长文档。保持工作区原有变更，不自动提交或推送。
+
+## 敌人、装备与当前项目边界
+
+- 制作敌人 GA 前阅读工程内 `docs/monster-development-standard.md` 和 `docs/monster-production-workflow.md`，检查最新 EnemyCharacter、对象池及授予入口。普通单体攻击有感叹号，范围/位移攻击有红色实际范围；锁定、命中和取消时序需与真实动画匹配。死亡/回收必须作废旧攻击回调，复用不能重复授予。
+- 组合技能先检查所选执行器的节点能力，前四批与第五批不是任意互通。不要只创建子 DA 而遗漏根 GA、目录和实际输入接入。
+- 装备的常驻属性加成走既有 EquipmentComponent/Infinite GE，无需为每条属性创建 GA。涉及装备时使用工程内 `skills/build-equipment/SKILL.md` 和 `docs/equipment-production-workflow.md`；触发/主动装备能力尚不是现有数值装备通路的一部分。
+- 验证分别记录代码、资产、实际属性/伤害、客户端请求和视觉验收。旧报告或收到命令回执不算本次通过。
+- 仓库 `skills/build-ga` 为维护源；同步已安装副本时保留现有 references/scripts/agents，不用单个 SKILL.md 替换整个技能目录。更新后运行 quick_validate，并检查引用可达。
 
 ## 调用示例
 

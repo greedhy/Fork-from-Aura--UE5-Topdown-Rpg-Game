@@ -5,7 +5,7 @@ description: 在 test_25d UE5 GAS 项目中制作、修改和验证装备资产�
 
 # 制作表格驱动的装备
 
-在当前 test_25d 项目根目录工作。先阅读 `docs/equipment-development-standard.md`、`docs/2026-10-30-equipment-tables.md`，并核对实际代码与资产；文档不授权扩展主动能力、随机词条或 UI 改版。
+在当前 test_25d 项目根目录工作。先阅读 `docs/equipment-production-workflow.md`、`docs/equipment-development-standard.md`、`docs/2026-10-30-equipment-tables.md`，并核对实际代码与资产；文档不授权扩展主动能力、随机词条或 UI 改版。
 
 ## 数据与职责
 
@@ -38,8 +38,12 @@ description: 在 test_25d UE5 GAS 项目中制作、修改和验证装备资产�
 
 随机装备新增流程参考 `docs/2026-10-31-random-equipment-guide.md` 与 `Scripts/Equipment/author_random_equipment.py`。配置 DT_Equipment 的 bRandomizedEquipment/GenerationProfile，再配置 DT_EquipmentGenerationProfiles、DT_EquipmentRarities、DT_EquipmentAffixes；MinValue/MaxValue 可引用 CT_RandomEquipmentLevels。不要用重跑初始化脚本覆盖设计师已编辑的行。
 
-随机装备使用 GE_Equipment_Random（RandomEquipmentGameplayEffect），三条白名单属性 Armor/MaxHealth/MaxMana 以 Equipment.Stat.* SetByCaller 写入独立 Spec，Channel1 AddBase。固定装备仍保留原静态 GE 校验。新增其他属性必须同步扩展白名单、GE 模板、校验和测试，不能只在表里新增 Tag。
+随机装备使用 GE_Equipment_Random（RandomEquipmentGameplayEffect），EquipmentStats 注册表中的 20 项持久属性 以 Equipment.Stat.* SetByCaller 写入独立 Spec，Channel1 AddBase。固定装备仍保留原静态 GE 校验。新增其他属性必须同步扩展白名单、GE 模板、校验和测试，不能只在表里新增 Tag。
 
 仅服务器生成一次 RollData：保存版本、ProfileId、品质、物品等级、seed、实际基础数值、词缀 ID/等级/互斥组/实际数值。拾取、换装、卸下、丢弃、复制和存档必须完整移动同一实例及 RollData；不得根据 seed 在读档/显示时重抽。旧固定装备使用空 GenerationVersion=0；禁止把已存在固定物品的定义直接改成随机类型，新增定义 ID 或显式迁移旧存档。
 
 数值范围和权重改表只影响新生成物品，旧物品采用保存的结果。稳定的 ProfileId/定义 ID 不应随调参重命名。运行 `test_25d.Equipment.Random.*`、真实初始化 GE 组合测试以及 `pie_random_equipment_probe.py` / `pie_random_equipment_network_probe.py`；必须核对实例实际数值与玩家属性增量，不能仅凭 Active GE 存在判定成功。
+
+## 全属性扩展
+
+20 项持久属性的 Tag、Modifier 和显示名称由 EquipmentStats 注册表统一管理，见 docs/2026-10-31-equipment-all-attributes.md。共用随机 GE 用 author_all_equipment_suffixes.py 迁移，新增后缀只合并缺失行。随机 GE 允许非空属性子集，禁止重复属性、错误 Tag 映射及实例属性未覆盖；当前资源与结算元属性仍禁止。扩展是否验证完成以该文档最新记录为准。旧三属性 PIE 脚本不能直接验证全属性池：主属性可能产生派生加成，应更新断言或使用明确的测试实例。

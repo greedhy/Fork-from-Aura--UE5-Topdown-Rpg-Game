@@ -48,6 +48,9 @@ public:
     static ADungeonRunDirector* Find(const UWorld* World);
     static bool AllowsCombat(const AActor* Source, const AActor* Target);
     static bool IsManagedEnemy(const AActor* Actor);
+    // Source-owned summons count toward the same encounter cap but never consume ordinary pool slots.
+    AEnemyCharacter* SpawnSummonedEnemy(AEnemyCharacter* Summoner,TSubclassOf<AEnemyCharacter> Class,const FTransform& Transform);
+    void RetireSummonedEnemy(AEnemyCharacter* Summoner,AEnemyCharacter* Minion);
 private:
     bool InitializeRun();
     void TickAuthority();

@@ -35,10 +35,13 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out) const override;
 	// Floor-owned pooling is opt-in; ordinary enemies retain their original death path.
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Dungeon Pool")
 	void EnableDungeonPooling(float CorpseSeconds = 1.5f);
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Dungeon Pool")
 	void SleepForDungeonPool(bool bKeepCorpse = false);
 	bool CanFinishPoolReturn() const;
 	bool HasPreparedPoolReturn() const { return bPoolResetDone; }
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category="Dungeon Pool")
 	bool WakeFromDungeonPool(const FTransform& Transform, FName Room);
 	bool IsDungeonPoolSleeping() const { return DungeonPoolLife < 0; }
 	/** Read-only diagnostic: zero = unmanaged, positive = live lease, negative = retired lease. */
@@ -46,6 +49,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mass Monsters")
 	FName MonsterRoomId;
+
+	// APawn ownership changes to its controller on possession. Keep summon provenance separate.
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Summon")
+	TWeakObjectPtr<AEnemyCharacter> SummoningSource;
 	virtual void Die(const FVector& DeathImpulse) override;
 	virtual void MulticastHandleDeath_Implementation(const FVector& DeathImpulse) override;
 	virtual void PossessedBy(AController* NewController) override;

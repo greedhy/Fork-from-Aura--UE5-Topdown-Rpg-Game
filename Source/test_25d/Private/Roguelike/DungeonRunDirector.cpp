@@ -14,6 +14,7 @@
 #include "Backpack/BackpackComponent.h"
 #include "Backpack/ItemDefinition.h"
 #include "Character/EnemyCharacter.h"
+#include "Character/GruxEnemyCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -322,6 +323,33 @@ bool ADungeonRunDirector::SpawnActorTarget(TSubclassOf<AEnemyCharacter> Class, f
     if (bIsBoss) { Boss=Enemy; NextBossPulse=GetWorld()->GetTimeSeconds()+4; }
     return true;
 }
+AEnemyCharacter* ADungeonRunDirector::SpawnSummonedEnemy(AEnemyCharacter* Summoner,TSubclassOf<AEnemyCharacter> Class,const FTransform& Transform)
+{
+    if(!HasAuthority() || Phase!=EDungeonRunPhase::Encounter || !IsValid(Summoner) || Summoner->IsDead_Implementation() ||
+        !ActorTargets.Contains(Summoner) || !Class || ActorTargets.Num()+MassTargets.Num()+SpawnQueue.Num()>=30 ||
+        GetRoomIndex(Transform.GetLocation())!=ActiveRoom || GetRoomIndex(Summoner->GetActorLocation())!=ActiveRoom) return nullptr;
+    auto* Minion=GetWorld()->SpawnActorDeferred<AEnemyCharacter>(Class,Transform,Summoner,nullptr,ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding);
+    if(!Minion) return nullptr;
+    const FName Key(*FString::Printf(TEXT("A%d"),++ActorSequence));
+    if(!Model.Encounter.RegisterTarget(Key,false)){Minion->Destroy();return nullptr;}
+    Minion->Tags.AddUnique(TEXT("DungeonEncounter"));Minion->Tags.AddUnique(TEXT("SourceOwnedSummon"));
+    Minion->MonsterRoomId=Summoner->MonsterRoomId;
+    Minion->SummoningSource=Summoner;
+    ActorTargets.Add(Minion,Key);OptionalActors.Add(Minion);
+    Minion->FOnDeath.AddUniqueDynamic(this,&ADungeonRunDirector::OnActorDied);
+    Minion->OnDestroyed.AddUniqueDynamic(this,&ADungeonRunDirector::OnActorDestroyed);
+    Minion->FinishSpawning(Transform);
+    LastSafeLocations.Add(Minion,Minion->GetActorLocation());
+    return Minion;
+}
+void ADungeonRunDirector::RetireSummonedEnemy(AEnemyCharacter* Summoner,AEnemyCharacter* Minion)
+{
+    if(!HasAuthority() || !IsValid(Summoner) || !IsValid(Minion) || Minion->SummoningSource.Get()!=Summoner || !Minion->ActorHasTag(TEXT("SourceOwnedSummon"))) return;
+    FName Key;
+    if(ActorTargets.RemoveAndCopyValue(Minion,Key) && !bCleaningUp) Model.Encounter.ResolveTarget(Key,EDungeonTargetResolution::Recycled);
+    OptionalActors.Remove(Minion);LastSafeLocations.Remove(Minion);
+    Minion->Destroy();
+}
 void ADungeonRunDirector::OnMassRemoved(int32 Id, FName Room, EPureMassRemovalReason Reason)
 {
     FName Key; if (!MassTargets.RemoveAndCopyValue(Id,Key)) return; OptionalMass.Remove(Id);
@@ -354,6 +382,9 @@ void ADungeonRunDirector::UpdateBoss()
         }
         return;
     }
+    // Grux owns its complete warned GAS moveset. Keep the encounter/death cleanup
+    // above, but do not layer the legacy pulse or half-health summon on that moveset.
+    if (Boss->IsA<AGruxEnemyCharacter>()) return;
     auto* ASC=Boss->GetAbilitySystemComponent(); if (!ASC) return; const double Now=GetWorld()->GetTimeSeconds();
     if (!bBossSummoned && ASC->GetNumericAttribute(UMyAttributeSet::GetHealthAttribute())<=Profile->BossHealth*.5f)
     { bBossSummoned=true; if (!SpawnActorGroup(2,true)) { Model.Encounter.Error=TEXT("BossSummonFailed"); return; } }

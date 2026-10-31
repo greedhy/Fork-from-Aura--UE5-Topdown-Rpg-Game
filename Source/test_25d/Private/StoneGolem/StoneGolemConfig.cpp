@@ -7,10 +7,11 @@ bool FStoneGolemAttackTuning::Validate(FString& Error) const
 {
     auto Fail=[&Error](const TCHAR* Text){Error=Text;return false;};
     for(float Value : {Radius,Angle,HeightTolerance,AnimationDelay,LockTime,PlayRate,ContactTime,ContactTolerance,
-        RecoveryEnd,DamageMultiplier,Cooldown,KnockbackSpeed,ActivationRange,SelectionWeight,ImpactScale,ImpactLifetime})
+        RecoveryEnd,DamageMultiplier,Cooldown,KnockbackSpeed,KnockbackUpSpeed,Length,Width,ActivationRange,SelectionWeight,ImpactScale,ImpactLifetime})
         if(!FMath::IsFinite(Value)) return Fail(TEXT("Attack numbers must be finite"));
     if(CenterOffset.ContainsNaN() || HeadOffset.ContainsNaN()) return Fail(TEXT("Offsets must be finite"));
-    if(Radius<=0 || Radius>2000 || HeightTolerance<=0 || HeightTolerance>200 || Angle<=0 || Angle>360)
+    if(Radius<=0 || Radius>2000 || HeightTolerance<=0 || HeightTolerance>200 || Angle<=0 || Angle>360 ||
+        Length<=0 || Length>2000 || Width<=0 || Width>2000 || KnockbackUpSpeed<0)
         return Fail(TEXT("Invalid shape dimensions"));
     if(PlayRate<=0 || PlayRate>3 || AnimationDelay<0 || LockTime<0 || ContactTime<=0 || ContactTolerance<=0 || ContactTolerance>.1f)
         return Fail(TEXT("Invalid timing"));
@@ -26,7 +27,13 @@ bool FStoneGolemAttackTuning::Contains(const FVector& Center,float Yaw,const FVe
 {
     if(Point.ContainsNaN() || Center.ContainsNaN() || !FMath::IsFinite(Yaw)) return false;
     const FVector Delta=Point-Center;
-    if(FMath::Abs(Delta.Z)>HeightTolerance || Delta.SizeSquared2D()>FMath::Square(Radius)) return false;
+    if(Shape==EStoneGolemShape::Rectangle)
+    {
+        const FVector Local=FRotator(0,Yaw,0).UnrotateVector(Delta);
+        return FMath::Abs(Local.Z)<=HeightTolerance && Local.X>=-1.e-4 && Local.X<=Length+1.e-4 && FMath::Abs(Local.Y)<=Width*.5f+1.e-4;
+    }
+    // BuildSurface samples the exact rim using trig; roundoff must not cull alternate rim cells.
+    if(FMath::Abs(Delta.Z)>HeightTolerance || Delta.SizeSquared2D()>FMath::Square(Radius)+1.e-4) return false;
     return Shape==EStoneGolemShape::Circle || Delta.SizeSquared2D()<KINDA_SMALL_NUMBER ||
         FVector::DotProduct(FRotator(0,Yaw,0).Vector(),Delta.GetSafeNormal2D())>=FMath::Cos(FMath::DegreesToRadians(Angle*.5f))-1.e-6f;
 }
@@ -61,6 +68,21 @@ void StoneGolemGeometry::BuildSurface(UWorld* World,const AActor* Source,const F
     const FVector& Center,float Yaw,TArray<FVector>& Vertices,TArray<int32>& Triangles)
 {
     Vertices.Reset();Triangles.Reset();TArray<bool> Valid;
+    if(T.Shape==EStoneGolemShape::Rectangle)
+    {
+        constexpr int32 Rows=24,Columns=8;
+        for(int32 X=0;X<=Rows;++X) for(int32 Y=0;Y<=Columns;++Y)
+        {
+            const FVector Point=Center+FRotator(0,Yaw,0).RotateVector(FVector(T.Length*X/Rows,T.Width*(float(Y)/Columns-.5f),0));
+            FVector Floor=Point;
+            Valid.Add(Project(World,Source,Point,T.HeightTolerance,Floor) && T.Contains(Center,Yaw,Floor) && Visible(World,Source,Center,Floor));
+            Vertices.Add(Floor);
+        }
+        auto Add=[&](int32 A,int32 B,int32 C){if(Valid[A]&&Valid[B]&&Valid[C]){Triangles.Add(A);Triangles.Add(B);Triangles.Add(C);}};
+        for(int32 X=0;X<Rows;++X) for(int32 Y=0;Y<Columns;++Y)
+        {const int32 A=X*(Columns+1)+Y,B=A+1,C=A+Columns+1,D=C+1;Add(A,C,D);Add(A,D,B);}
+        return;
+    }
     constexpr int32 Steps=96,Rings=8;
     const float Sweep=T.Shape==EStoneGolemShape::Circle?360.f:T.Angle;
     for(int32 Ring=0;Ring<=Rings;++Ring) for(int32 Step=0;Step<=Steps;++Step)

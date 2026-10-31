@@ -1,6 +1,6 @@
 # 当前项目主要功能清单
 
-更新于 2026-10-26。本文按当前源码、资产及已有制作记录整理主要功能，不把设计计划当作已经落地的玩法，也不把同一技能的 Actor / Mass 副本重复算作新机制。
+更新于 2026-10-31。本文按当前源码、资产及已有制作记录整理主要功能，不把设计计划当作已经落地的玩法，也不把同一技能的 Actor / Mass 副本重复算作新机制。
 
 「基础」表示沿用 Aura 课程工程中的能力；「扩展」表示本项目增加或改造的系统。它们共同组成当前工程，但不是所有功能都会在每张测试地图中自动启用。这里是功能索引，不表示本文编写时逐项重新完成了运行验收。
 
@@ -36,7 +36,7 @@
 | 200 Goblin 迷宫 | 6 个生成区域合计 200 个普通怪物；可配置类型、数量、间距和房间 | [关卡记录](2026-10-23-labyrinth-mass-200.md)；目前属于功能验证 |
 | Mass 测试技能点 | 新会话每玩家 999 点；消费、重生、换图保留余额 | [MassStartingPoints](../Source/test_25d/Private/PureMass/Extensions/MassStartingPoints.cpp)；普通模式不采用此规则 |
 
-玩家保持 Actor/GAS。后续精英怪和 Boss 可以沿用 Actor 战斗路径，但「每房间随机精英、词缀、属性增幅、按怪物类型抽取 GA 池」尚未形成完整模式，不能计作已完成内容。
+玩家保持 Actor/GAS。当前 L_RoguelikeRun 已采用全 Actor/GAS 遭遇，并接入石像精英、Boss 阶段与普通怪对象池；本节 Mass 系统保留在独立测试地图。怪物随机词缀与按类型抽取 GA 的完整体系仍未实现。
 
 ## 3. GA 原型能力清单
 
@@ -169,12 +169,67 @@
 - [GA 作者脚本](../Scripts/GA)与 [Mass 作者脚本](../Scripts/PureMass)：创建、配置、保存、读回资产；部分脚本固定批次，不能作为无参数通用工具反复覆盖工程。
 - [原生自动化测试](../Source/test_25d/Private/Tests)：背包、联机流程、GA、地形、Mass 及混合目标等核心行为。
 - PIE 脚本：远程实际输入、Actor / Mass 战斗、伤害数字、菜单学习、技能点同步、组队换图与存档恢复。
-- 验证文档与实机截图：记录历史结果和范围；`Saved/` 的运行报告与缓存不上传。最新批次历史验收见[第五批记录](2026-10-25-ga-batch5-guide.md)。
+- 验证文档与实机截图：记录历史结果和范围；`Saved/` 的运行报告与缓存不上传。技能第五批历史验收见[第五批记录](2026-10-25-ga-batch5-guide.md)；最新项目自动化及装备验证见[随机装备指南](2026-10-31-random-equipment-guide.md)。
 
 ## 10. 当前未完成或不能据此推断的内容
 
-- 完整暗黑式精英生成规则、词缀池、怪物专属随机 GA 池和完整 Boss 玩法。
+- 完整暗黑式怪物随机词缀和专属随机 GA 池；已有石像精英与 Boss 房阶段规则，不等于完整 Boss 内容体系。装备随机词缀已实现，见下方增量表。
 - 所有传统 Actor GA 无修改即可攻击 Mass；目前有专门适配和明确的混合执行器。
 - 万级怪物性能保证、与 Actor 的同条件性能基准、打包 Shipping 验收。
 - 互联网账号、跨公网匹配、中继和商业化联机服务。
 - 所有原型跨执行器任意连接、Emitter 等同完整召唤 AI、泥潭已经具备独立战斗状态。
+
+## 11. 随机地牢、敌人与装备增量（2026-10-31）
+
+本节补充旧清单之后的实现。当前玩法和底层技术总表见 [README](../README.md)。早期生成增量文档保留历史方案，不能用其中的 Mass 遭遇说明替代当前 Actor/GAS 地牢配置。
+
+| 模块 | 当前实现 | 配置 / 源码 / 验证入口 |
+|---|---|---|
+| 随机布局 | 主线与支路共 14～18 房、用途配额、空间端口、确定性 Seed、有界搜索与备用布局 | [生成增量二](2026-10-28-roguelike-generation-increment2.md) |
+| 装配与同步 | 服务器复制布局清单，各端加载；碰撞、导航与全员 Ready 后开放入口 | [Roguelike 源码](../Source/test_25d/Private/Roguelike)；当前整层创建/销毁，无逐房加载卸载 |
+| 房间状态机 | 集结、锁门、两波普通战斗、精英、Boss 半血增援与脉冲、击杀账本及一次性奖励 | [DungeonRunDirector](../Source/test_25d/Private/Roguelike/DungeonRunDirector.cpp) |
+| 地牢经济 | 个人金币、宝箱部分领取保留、商店购买校验、每人一次休整、Boss 出口返回菜单 | [DungeonRunEconomy](../Source/test_25d/Private/Roguelike/DungeonRunEconomy.cpp)；未接成自动连续爬层 |
+| 倒地与失败 | 保留 Pawn/ASC，队友清房后复活；全灭或必杀目标异常移除明确失败 | [实际验收](2026-10-30-dungeon-lifecycle-validation.md) |
+| 普通敌人 | 长矛哥布林、弹弓哥布林、食尸鬼；确定性洗牌袋、异步预载和分帧生成 | [组成配置](2026-10-30-dungeon-enemy-variety.md) |
+| 有限对象池 | 默认总容量 12，按类型配额、尸体布娃娃、休眠、跨遭遇复用、旧生命回调隔离 | [对象池记录](2026-10-29-dungeon-enemy-pool.md)；不代表逐房流送或无限复用 |
+| 石像精英 | 重锤、盾击、地震；预警、蒙太奇时序、插槽特效、死亡/眩晕取消、移动和血条 | [实现记录](stone-golem-implementation-and-acceptance.md)；未计作多人最终验收 |
+| 地牢 HUD | 当前房/波次/目标/金币、商店与服务反馈、已探索小地图、相机方向投影 | [DungeonRunWidget](../Source/test_25d/Private/Roguelike/DungeonRunWidget.cpp) |
+| 固定装备 | 蓝宝石戒指、红宝石戒指、铁卫胸甲；左右戒指与胸甲槽；表格编辑属性 | [装备表格](2026-10-30-equipment-tables.md) |
+| 装备拾取 | Soul 展示、附近名称、E 拾取、SoulPickup 特效、B 同时打开背包和装备栏 | [拾取记录](2026-10-30-equipment-soul-pickup.md) |
+| 随机装备生成 | 基础范围、品质权重、前后缀数量/权重、互斥组、等级档、数值精度 | [EquipmentGenerator](../Source/test_25d/Private/Equipment/EquipmentGenerator.cpp)；当前物品等级默认取 Profile，不自动跟随玩家等级 |
+| 随机装备应用 | 每件独立 Infinite GE Spec，基础与词缀按属性汇总后 SetByCaller；Channel1 加法 | [EquipmentComponent](../Source/test_25d/Private/Equipment/EquipmentComponent.cpp)、[GE 模板](../Source/test_25d/Private/Equipment/EquipmentGameplayEffect.cpp) |
+| 装备实例持久化 | GUID + RollData 贯通拾取、背包、穿脱、丢弃、网络复制和 SaveGame；不根据 seed 重抽 | [随机装备指南](2026-10-31-random-equipment-guide.md)；改表只影响新生成数值，定义 ID/Profile 应保持稳定 |
+| 装备制作工具 | 幂等样例脚本、资产读回、全属性扩展 220 项回归；旧三属性另有单机/双端 PIE 记录 | [build-equipment](../skills/build-equipment/SKILL.md)、[Scripts/Equipment](../Scripts/Equipment)；随机词缀现支持 20 项持久属性加法；见 [全属性扩展](2026-10-31-equipment-all-attributes.md) |
+
+## 12. 底层技术索引
+
+| 技术层 | 使用技术 | 具体职责 |
+|---|---|---|
+| 引擎与语言 | UE 5.8、C++、Blueprint、UHT/UBT | 原生规则、反射、资产与构建 |
+| 战斗与效果 | GAS、ASC、GA、GE、AttributeSet、GameplayTag/Cue | 技能生命周期、伤害、冷却、消耗、属性和装备效果 |
+| 数据与随机 | DataAsset、DataTable、CurveTable、ScalableFloat、FRandomStream | 表格数值、技能节点、生成规则、可复现抽取 |
+| 网络 | Server RPC、OnRep、FastArray、OnlineSubsystemNull | 权威交互、状态差量同步和 LAN 会话 |
+| 实体与 AI | Mass Entity、Fragment/Processor、AIController、行为树/黑板、Recast/NavMesh | 独立 Mass 普通怪、Actor 敌人、寻路与空间查询 |
+| 性能与生命周期 | 共享骨骼实例、对象池、异步资源加载、分帧生成 | 减少逐怪 Actor 开销或重复构造成本；两条实现路径各有适用场景 |
+| UI 与表现 | UMG、Slate、MVVM、Niagara、蒙太奇、ProceduralMesh | 菜单与 HUD、装备详情、攻击/拾取特效和实际范围预警 |
+| 持久化 | SaveGame、稳定身份、GUID、快照 | 角色/技能/背包/装备恢复和实例去重 |
+| 工具与测试 | Automation Framework、Unreal Python、MCP、PowerShell | 创建与检查资产、构建、原生及 PIE 回归 |
+
+模块依赖以 [test_25d.Build.cs](../Source/test_25d/test_25d.Build.cs) 和 [uproject](../test_25d.uproject) 为准。启用了某插件不等于已经实现该插件提供的全部玩法。
+
+## 本地构建说明
+
+本地验收使用关闭 test_25d 模块 Unity 合并编译的配置，避免测试源码合并后的符号冲突。在 `Saved/UnrealBuildTool/BuildConfiguration.xml` 合并以下节点；该文件属于本地构建产物，不随源码提交。
+
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<Configuration xmlns="https://www.unrealengine.com/BuildConfiguration">
+  <ModuleConfiguration>
+    <DisableUnityBuild>
+      <Item>test_25d</Item>
+    </DisableUnityBuild>
+  </ModuleConfiguration>
+</Configuration>
+```
+
+GitHub 最近同步未上传新增/修改的引擎内资产。源码编译成功不等于新地图、GE 蓝图、表格或特效已经随仓库提供；试玩需配套本地资产，或按各模块制作脚本及指南准备资源。

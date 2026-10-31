@@ -1,4 +1,5 @@
 #include "PureMass/PureMassAbility.h"
+#include "AbilitySystem/Prototypes/PrototypeFacing.h"
 #include "PureMass/PureMassRuntime.h"
 #include "PureMass/PureMassTargetData.h"
 #include "PureMass/PureMassSubsystem.h"
@@ -138,6 +139,7 @@ void UPureMassAbility::ExecuteMass(const FVector& Point, FPureMassCombatTarget T
     if (Prototype->Kind == K::Cone || Prototype->Kind == K::Line || Prototype->Kind == K::Chain) Origin = Avatar->GetActorLocation();
     MassRuntime = APureMassRuntime::Spawn(Context, Prototype, Origin, Direction, Target);
     if (!IsValid(MassRuntime)) { AbortMass(); return; }
+    PrototypeFacing::Apply(Avatar, Point, Prototype->bTargetSelf);
     if (Prototype->Kind != K::Orbit) APureMassRuntime::NotifyCommittedAttack(Avatar, this, Target);
     if (Prototype->Kind == K::Beam || Prototype->Kind == K::Orbit)
         MassRuntime->OnDestroyed.AddDynamic(this, &ThisClass::RuntimeDestroyed);

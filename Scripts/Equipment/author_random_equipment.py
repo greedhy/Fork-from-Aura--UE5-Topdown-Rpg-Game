@@ -89,7 +89,7 @@ if not u.EditorAssetLibrary.does_asset_exist(effect_path):
     bp = TOOLS.create_asset('GE_Equipment_Random', BASE + '/Effects', u.Blueprint, factory)
     assert bp
     u.BlueprintEditorLibrary.compile_blueprint(bp)
-    # Native constructor owns all three Channel1 AddBase SetByCaller modifiers.
+    # Native constructor owns all supported Channel1 AddBase SetByCaller modifiers.
     assert u.EditorAssetLibrary.save_loaded_asset(bp, False)
 rows = []
 for name, label, icon, attribute, low, high, slots in examples:

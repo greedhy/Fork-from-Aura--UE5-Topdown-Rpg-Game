@@ -1,3 +1,4 @@
+#include "Equipment/EquipmentStats.h"
 #include "Equipment/EquipmentComponent.h"
 #include "Equipment/EquipmentGameplayEffect.h"
 #include "Equipment/EquipmentGenerator.h"
@@ -72,11 +73,17 @@ FActiveGameplayEffectHandle UEquipmentComponent::Apply(const FBackpackItemDefEnt
  {
   if (!FEquipmentGenerator::ValidateRoll(Roll) || Roll.ProfileId != Def.GenerationProfile) return {};
   const auto Totals=FEquipmentGenerator::GetTotals(Roll);
-  for (const TCHAR* Name : {TEXT("Equipment.Stat.Armor"),TEXT("Equipment.Stat.MaxHealth"),TEXT("Equipment.Stat.MaxMana")})
+  const auto* Effect = Def.EquipEffect.GetDefaultObject();
+  TSet<FGameplayTag> Supported;
+  for (const auto& Modifier : Effect->Modifiers)
   {
-   const auto Tag=FGameplayTag::RequestGameplayTag(Name);
+   const auto Tag = Modifier.ModifierMagnitude.GetSetByCallerFloat().DataTag;
+   Supported.Add(Tag);
    Spec.Data->SetSetByCallerMagnitude(Tag, Totals.FindRef(Tag));
   }
+  // Subset templates are allowed, but must never silently discard rolled stats.
+  for (const auto& Total : Totals) if (!Supported.Contains(Total.Key)) return {};
+
  }
  auto Handle = AbilitySystem->ApplyGameplayEffectSpecToSelf(*Spec.Data);
  const auto* Active = AbilitySystem->GetActiveGameplayEffect(Handle);

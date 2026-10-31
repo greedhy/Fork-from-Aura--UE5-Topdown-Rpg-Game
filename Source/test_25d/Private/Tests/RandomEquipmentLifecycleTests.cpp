@@ -47,6 +47,14 @@ bool FRandomEquipmentLifecycleTest::RunTest(const FString& Parameters)
  Equipment->AvailableSlots.AddTag(Left); Equipment->AvailableSlots.AddTag(Right); Equipment->ReconcileEffects();
  FEquipmentRollData A,B; FString Error;
  if (!TestTrue(TEXT("Generate A"),FEquipmentGenerator::Generate(*Catalog,*Def,5,101,A,Error)) || !TestTrue(TEXT("Generate B"),FEquipmentGenerator::Generate(*Catalog,*Def,5,202,B,Error))) return false;
+ // Keep this lifecycle fixture independent of designer affix-pool changes.
+ for (auto* Roll : {&A, &B})
+ {
+  Roll->Affixes.Empty();
+  FEquipmentRolledAffix Affix; Affix.AffixId=TEXT("LifecycleMana"); Affix.DisplayName=FText::FromString(TEXT("Mana")); Affix.Tier=1;
+  FEquipmentRolledStat Stat; Stat.StatTag=FGameplayTag::RequestGameplayTag(TEXT("Equipment.Stat.MaxMana")); Stat.Value=5;
+  Affix.Stats.Add(Stat); Roll->Affixes.Add(Affix);
+ }
  const FGuid GuidA=FGuid::NewGuid(), GuidB=FGuid::NewGuid();
  if (!TestTrue(TEXT("Add A"),Bag->TryAddExistingItem(Id,GuidA,A)) || !TestTrue(TEXT("Add B"),Bag->TryAddExistingItem(Id,GuidB,B))) return false;
  auto* ClientModel=NewObject<UInventoryModel>(); ClientModel->ApplyReplicatedSlots(Bag->GetReplicatedSlots().Items,3);

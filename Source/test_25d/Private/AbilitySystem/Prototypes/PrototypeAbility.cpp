@@ -1,4 +1,5 @@
 #include "AbilitySystem/Prototypes/PrototypeAbility.h"
+#include "AbilitySystem/Prototypes/PrototypeFacing.h"
 #include "AbilitySystem/Prototypes/AbilityPrototype.h"
 #include "AbilitySystem/Prototypes/PrototypeRuntime.h"
 #include "AbilitySystem/AbilityTask/TargetDataUnderMouse.h"
@@ -160,6 +161,7 @@ void UPrototypeAbility::Execute(const FVector& Position, AActor* Target)
     }
     Runtime = APrototypeRuntime::Spawn(Context, Prototype, Origin, Direction, Target);
     if (!IsValid(Runtime)) { Abort(); return; }
+    PrototypeFacing::Apply(Avatar, Position, Prototype->bTargetSelf);
     if (Prototype->Kind == K::Beam || Prototype->Kind == K::Orbit)
         Runtime->OnDestroyed.AddDynamic(this, &ThisClass::OnRuntimeDestroyed);
     else

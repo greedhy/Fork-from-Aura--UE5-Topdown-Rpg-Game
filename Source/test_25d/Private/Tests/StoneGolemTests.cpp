@@ -49,6 +49,10 @@ bool FStoneGolemGeometryTest::RunTest(const FString&)
     TestTrue(TEXT("Rotated shape accepted"),T.Contains(FVector(100,100,0),90,FVector(100,200,0)));
     TestFalse(TEXT("Different floor rejected"),T.Contains(FVector::ZeroVector,0,FVector(10,0,61)));
     T.Shape=EStoneGolemShape::Circle;
+    T.Radius=100;
+    for(int32 Step=0;Step<=96;++Step)
+        TestTrue(TEXT("Sampled rim remains inside despite trig rounding"),T.Contains(FVector::ZeroVector,0,FRotator(0,-80.f+160.f*Step/96.f,0).Vector()*100));
+    T.Radius=220;
     TestTrue(TEXT("Circle includes rear"),T.Contains(FVector::ZeroVector,0,FVector(-100,0,0)));
     const TArray<FVector> Surface={FVector(0,0,0),FVector(100,0,0),FVector(0,100,0)};
     const TArray<int32> Triangles={0,1,2};

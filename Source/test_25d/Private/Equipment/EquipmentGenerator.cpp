@@ -1,3 +1,4 @@
+#include "Equipment/EquipmentStats.h"
 #include "Equipment/EquipmentGenerator.h"
 #include "Backpack/ItemDefinition.h"
 namespace
@@ -11,7 +12,7 @@ bool Fail(FString *E, const TCHAR *S)
 bool Ranges(const TArray<FEquipmentStatRange> &R, int32 L, FRandomStream &RNG,
             TArray<FEquipmentRolledStat> &Out)
 {
-    if (R.Num() > 16)
+    if (R.Num() > EquipmentStats::All().Num())
         return false;
     TSet<FGameplayTag> Tags;
     for (const auto &V : R)
@@ -38,9 +39,7 @@ bool Ranges(const TArray<FEquipmentStatRange> &R, int32 L, FRandomStream &RNG,
 } // namespace
 bool FEquipmentGenerator::IsSupportedStat(FGameplayTag T)
 {
-    const FName N = T.GetTagName();
-    return T.IsValid() && (N == TEXT("Equipment.Stat.Armor") || N == TEXT("Equipment.Stat.MaxHealth") ||
-                           N == TEXT("Equipment.Stat.MaxMana"));
+    return EquipmentStats::Find(T) != nullptr;
 }
 bool FEquipmentGenerator::ValidateRoll(const FEquipmentRollData &R, FString *E)
 {
@@ -49,10 +48,10 @@ bool FEquipmentGenerator::ValidateRoll(const FEquipmentRollData &R, FString *E)
                 R.RarityName.IsEmpty() && R.ItemLevel == 0 && R.RandomSeed == 0) ||
                Fail(E, TEXT("Malformed legacy roll"));
     if (R.GenerationVersion != 1 || R.ItemLevel < 1 || R.ItemLevel > 10000 || R.ProfileId.IsNone() ||
-        R.RarityId.IsNone() || R.Affixes.Num() > 6 || R.BaseStats.Num() > 16)
+        R.RarityId.IsNone() || R.Affixes.Num() > 6 || R.BaseStats.Num() > EquipmentStats::All().Num())
         return Fail(E, TEXT("Invalid roll schema"));
     auto Valid = [](const TArray<FEquipmentRolledStat> &S) {
-        if (S.Num() > 16)
+        if (S.Num() > EquipmentStats::All().Num())
             return false;
         TSet<FGameplayTag> Tags;
         for (const auto &V : S)
@@ -266,11 +265,8 @@ FText FEquipmentGenerator::MakeDescription(const FEquipmentRollData &R)
     auto AppendStats = [&S](const TArray<FEquipmentRolledStat> &Stats) {
         for (const auto &Stat : Stats)
         {
-            const FName Tag = Stat.StatTag.GetTagName();
-            FString Label = Tag == TEXT("Equipment.Stat.Armor")       ? TEXT("护甲")
-                            : Tag == TEXT("Equipment.Stat.MaxHealth") ? TEXT("最大生命")
-                            : Tag == TEXT("Equipment.Stat.MaxMana")   ? TEXT("最大法力")
-                                                                      : Tag.ToString();
+            const auto* Definition = EquipmentStats::Find(Stat.StatTag);
+            FString Label = Definition ? Definition->Label : Stat.StatTag.ToString();
             S += FString::Printf(TEXT("\n  %s +%g"), *Label, Stat.Value);
         }
     };
